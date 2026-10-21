@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"io"
 	"math/rand/v2"
+	"net"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -129,8 +130,12 @@ func New(cfg Config) (*Client, error) {
 		baseURL = DefaultBaseURL
 	}
 	parsedBase, err := url.Parse(baseURL)
-	if err != nil || parsedBase.Scheme == "" || parsedBase.Host == "" {
-		return nil, fmt.Errorf("invalid base_url %q: must be an absolute HTTP/HTTPS URL", baseURL)
+	if err != nil || parsedBase.Host == "" {
+		return nil, fmt.Errorf("invalid base_url %q: must be an absolute HTTPS URL", baseURL)
+	}
+	// Credentials are sent to base_url, so plain HTTP is only allowed for local test servers.
+	if parsedBase.Scheme != "https" && !(parsedBase.Scheme == "http" && isLoopbackHost(parsedBase.Hostname())) {
+		return nil, fmt.Errorf("invalid base_url %q: must use https", baseURL)
 	}
 
 	version := strings.TrimSpace(cfg.AnthropicVersion)
@@ -290,6 +295,14 @@ func Path(segments ...string) (string, error) {
 		escaped = append(escaped, url.PathEscape(seg))
 	}
 	return "/v1/organizations/" + strings.Join(escaped, "/"), nil
+}
+
+func isLoopbackHost(host string) bool {
+	if host == "localhost" {
+		return true
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
 }
 
 type requestConfig struct {

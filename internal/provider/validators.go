@@ -18,6 +18,7 @@ var (
 	resourceIDPattern  = regexp.MustCompile(`^[A-Za-z0-9_-]+$`)
 	slugPattern        = regexp.MustCompile(`^[a-z0-9-]+$`)
 	centsAmountPattern = regexp.MustCompile(`^\d+$`)
+	httpsURLPattern    = regexp.MustCompile(`^https://[^/\s]+(/\S*)?$`)
 )
 
 // idValidator ensures resource and data-source identifiers contain only safe characters
@@ -119,6 +120,11 @@ func subjectPrefixValidator() validator.String {
 // nonEmptyStringValidator ensures a string attribute is not empty or whitespace-only.
 func nonEmptyStringValidator() validator.String {
 	return stringvalidator.LengthAtLeast(1)
+}
+
+// httpsURLValidator ensures a URL that keys are trusted from uses https.
+func httpsURLValidator() validator.String {
+	return stringvalidator.RegexMatches(httpsURLPattern, "must be an https URL")
 }
 
 // centsAmountValidator ensures monetary amounts are non-negative integer strings in cents.
