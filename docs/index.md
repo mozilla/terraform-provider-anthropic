@@ -53,7 +53,7 @@ provider "anthropic" {
 ### Optional
 
 - `api_key` (String, Sensitive) Anthropic Admin API key (`sk-ant-admin...`). Defaults to `ANTHROPIC_ADMIN_API_KEY`. Note: Service Account and Workload Identity Federation endpoints reject static Admin API keys and require `oauth_token` or `federation`.
-- `base_url` (String) Base URL for the Anthropic API. Defaults to `https://api.anthropic.com`. Intentionally does not read `ANTHROPIC_BASE_URL` from the environment to prevent credential exfiltration via ambient proxy variables.
+- `base_url` (String) Base URL for the Anthropic API. Defaults to `https://api.anthropic.com`. Must use `https`, except `http` on a loopback host for local testing. Intentionally does not read `ANTHROPIC_BASE_URL` from the environment to prevent credential exfiltration via ambient proxy variables.
 - `federation` (Attributes) Workload Identity Federation (WIF) configuration for exchanging an external OIDC JWT (e.g. GitHub Actions, GCP, AWS, Kubernetes) for a short-lived Anthropic OAuth access token via `POST /v1/oauth/token`. (see [below for nested schema](#nestedatt--federation))
 - `max_retries` (Number) Maximum number of retries on HTTP 429 rate-limit or 5xx/529 transient errors. Defaults to `4`.
 - `oauth_token` (String, Sensitive) Anthropic OAuth access token (`sk-ant-oat01-...`) with `org:admin` scope. Defaults to `ANTHROPIC_OAUTH_TOKEN` (or `ANTHROPIC_AUTH_TOKEN`). Required when managing Service Accounts or Federation resources without WIF.

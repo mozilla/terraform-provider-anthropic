@@ -117,7 +117,7 @@ func (p *AnthropicProvider) Schema(_ context.Context, _ provider.SchemaRequest, 
 			"base_url": schema.StringAttribute{
 				Optional: true,
 				MarkdownDescription: "Base URL for the Anthropic API. " +
-					"Defaults to `https://api.anthropic.com`. Intentionally does not read `ANTHROPIC_BASE_URL` from the environment to prevent credential exfiltration via ambient proxy variables.",
+					"Defaults to `https://api.anthropic.com`. Must use `https`, except `http` on a loopback host for local testing. Intentionally does not read `ANTHROPIC_BASE_URL` from the environment to prevent credential exfiltration via ambient proxy variables.",
 			},
 			"max_retries": schema.Int64Attribute{
 				Optional:            true,

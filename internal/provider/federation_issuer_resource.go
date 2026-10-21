@@ -85,7 +85,7 @@ func (r *FederationIssuerResource) Schema(_ context.Context, _ resource.SchemaRe
 				Required:            true,
 				MarkdownDescription: "Exact OIDC `iss` claim URL trusted by the organization (e.g. `https://token.actions.githubusercontent.com`).",
 				Validators: []validator.String{
-					nonEmptyStringValidator(),
+					httpsURLValidator(),
 				},
 			},
 			"check_jti": schema.BoolAttribute{
@@ -125,6 +125,9 @@ func (r *FederationIssuerResource) Schema(_ context.Context, _ resource.SchemaRe
 					"url": schema.StringAttribute{
 						Optional:            true,
 						MarkdownDescription: "Explicit JWKS endpoint URL when `type = \"explicit_url\"`.",
+						Validators: []validator.String{
+							httpsURLValidator(),
+						},
 					},
 					"ca_cert_pem": schema.StringAttribute{
 						Optional:            true,

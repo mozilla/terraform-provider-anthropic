@@ -389,3 +389,21 @@ func TestComputeBackoffCapsRetryAfter(t *testing.T) {
 		}
 	}
 }
+
+func TestBaseURLRequiresHTTPS(t *testing.T) {
+	for url, ok := range map[string]bool{
+		"https://api.anthropic.com": true,
+		"http://127.0.0.1:8080":     true,
+		"http://localhost:8080":     true,
+		"http://[::1]:8080":         true,
+		"http://api.anthropic.com":  false,
+		"http://10.0.0.1":           false,
+		"ftp://api.anthropic.com":   false,
+		"api.anthropic.com":         false,
+	} {
+		_, err := New(Config{APIKey: "sk-ant-admin-test", BaseURL: url})
+		if (err == nil) != ok {
+			t.Errorf("base_url %q: got err=%v, want accepted=%v", url, err, ok)
+		}
+	}
+}
