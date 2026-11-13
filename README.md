@@ -1,6 +1,6 @@
 # terraform-provider-anthropic
 
-A Terraform and OpenTofu provider for Anthropic organizations. It manages Claude Console workspaces, users and API keys, Claude Enterprise groups and spend limits, and service accounts with workload identity federation (WIF).
+A Terraform and OpenTofu provider for Anthropic organizations. It manages Claude Console workspaces, users, API keys, spend limits and rate limits, Claude Enterprise groups, spend limits, plugins and Claude in Slack, org settings such as compliance, encryption keys, telemetry and webhooks, and service accounts with workload identity federation (WIF).
 
 Resource and data source reference is in [docs/](docs/). Examples are in [examples/](examples/).
 
@@ -18,10 +18,12 @@ The provider takes one of three credentials.
 | Credential | Provider setting | Environment variable | Covers |
 |---|---|---|---|
 | Admin API key (`sk-ant-admin...`) | `api_key` | `ANTHROPIC_ADMIN_API_KEY` | Console and Enterprise resources. The API rejects admin keys on service account and federation endpoints. |
-| OAuth token with `org:admin` scope | `oauth_token` | `ANTHROPIC_OAUTH_TOKEN` | All resources |
-| WIF token exchange | `federation` | See below | All resources, when the rule grants `org:admin` |
+| OAuth token with `org:admin` scope | `oauth_token` | `ANTHROPIC_OAUTH_TOKEN` | All resources except those listed below |
+| WIF token exchange | `federation` | See below | All resources except those listed below, when the rule grants `org:admin` |
 
 WIF needs no stored secret, so use it in CI.
+
+These endpoints reject OAuth and WIF tokens, so use an admin API key for them: roles and role permissions, plugins and plugin marketplaces, spend limit increase requests, and Claude in Slack. If the key lacks a scope an endpoint needs, the API rejects the request and names the scope, for example `read:rbac_roles` or `read:claude_tag`.
 
 Settings in the provider block take precedence over the environment. With no credential in the block, the provider reads `ANTHROPIC_FEDERATION_RULE_ID` and the other federation variables first, then `ANTHROPIC_OAUTH_TOKEN`, then `ANTHROPIC_ADMIN_API_KEY`. A federation field left out of the block is read from its environment variable. The provider does not read `ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN`, `ANTHROPIC_BASE_URL`, `ANTHROPIC_PROFILE` or Anthropic CLI profiles, because Claude Code, LLM gateways and other tools set them.
 
@@ -48,7 +50,7 @@ The provider cannot create the federation rule it authenticates through. The API
 3. Match on claims that identify one workload, plus the audience `https://api.anthropic.com`.
 4. Copy the organization, rule, service account and workspace IDs into the `federation` block or the environment variables.
 
-Every other issuer, service account and rule can then be managed in code.
+Every other issuer, service account and rule can then be managed in code. The bootstrap service account and rule can be imported, so they show up in code, but Terraform cannot create them.
 
 `subject_prefix` is an exact match on the JWT `sub` claim unless it ends in `*`, which makes it a prefix match. `repo:org/repo:*` admits every branch, tag and pull request in the repo. For Google, match `sub` (the service account's numeric unique ID) and `email` in `claims`.
 
@@ -63,19 +65,33 @@ Every other issuer, service account and rule can then be managed in code.
 | Console | Users | Yes | No | Change org role or remove. Users are added by invite or SSO, not created. |
 | Console | Invites | Yes | No | Fails with HTTP 400 when JIT SSO or SCIM provisioning is on. |
 | Console | API keys | Import only | No | Rename and change status. The API cannot create keys. |
+| Console | Workspace and org spend limits | Yes | No | Early access, requested through the Anthropic account team. `anthropic_spend_limit` with `workspace_id` or `organization = true`. Monthly and capped only. The Default workspace cannot have one. |
+| Console | Workspace rate limit overrides | Yes | No | One `anthropic_workspace_rate_limit` per workspace and rate limit group. Destroy clears the overrides. Org rate limits are read-only (`anthropic_rate_limits`). |
 | Enterprise | Groups created through the API | Yes | No | Name and members. |
 | Enterprise | SCIM-provisioned groups | Import and read | No | Cannot be renamed or deleted through the API. |
 | Enterprise | Group role assignments | No | | Read-only. Assign in the Claude Enterprise admin settings or through SCIM. |
-| Enterprise | Roles | Read only | No | `anthropic_rbac_roles` data source. |
+| Enterprise | Roles and role permissions | Read only | No | Roles are defined by Anthropic. |
 | Enterprise | Per-user spend limits | Yes | No | Exactly one of `amount` (cents) or `unlimited = true`, so an unset variable cannot become unlimited. |
+| Enterprise | Effective spend limits, increase requests | Read only | No | Claude Enterprise organizations only. |
 | Enterprise | Group, seat tier and org default spend limits | No | | Not in the API. Set in the Claude Enterprise admin settings. |
+| Enterprise | Plugin marketplaces | Default installation preference | No | Beta. Marketplaces are created and connected to a repository in claude.ai. Destroy only removes it from state. |
+| Enterprise | Plugin installation settings | Yes | No | Beta. Per plugin, for the organization or a group. |
+| Enterprise | Plugins, versions, shares | Read only | No | Beta. Plugins are created by uploading files. |
+| Enterprise | Claude in Slack channels | Yes | No | Experimental. Destroy only removes the channel from state and keeps its Claude history. |
+| Enterprise | Claude in Slack bundle targets | Yes | No | Experimental. Bundles and Slack workspaces are read-only and set up in claude.ai. |
+| Org | Compliance API setting | Yes | No | One per org. Destroy only removes it from state, since the API has no reset. |
+| Org | Customer-managed encryption keys | Yes | No | AWS, GCP and Azure key references. Key IDs in ARN form are not supported yet. |
+| Org | Telemetry destinations | Yes | No | Beta. Header values are sensitive and never returned by the API. Workspace attachments are a separate resource. |
+| Org | Webhooks | Yes | No | Beta. The signing secret is returned only on create. |
 | WIF | Service accounts | Yes | Yes | Destroy archives. |
 | WIF | Service account workspace membership | Yes | Yes | |
 | WIF | Federation issuers | Yes | Yes | Destroy archives. |
 | WIF | Federation rules (`workspace:developer`, `workspace:inference`) | Yes | Yes | Multiple workspaces, description. Destroy archives. |
-| WIF | Federation rules with `org:admin` | No | | Needs a Console session. See [Bootstrapping WIF](#bootstrapping-wif). |
+| WIF | Admin service accounts and `org:admin` federation rules | Import only | Yes | Created in the Console. See [Bootstrapping WIF](#bootstrapping-wif). Creating one in Terraform fails at plan time. |
 
-Data sources cover the organization, users, invites, workspaces, workspace members, API keys, groups, roles, service accounts, federation issuers and federation rules. See [docs/](docs/) for attributes.
+One-off actions are not managed: user sign-out, approving or denying spend limit increase requests, validating an encryption key, sending a test span, rotating a webhook signing secret and uploading plugin files.
+
+Most resources also have data sources. See [docs/](docs/) for the full list and attributes.
 
 ## Security
 

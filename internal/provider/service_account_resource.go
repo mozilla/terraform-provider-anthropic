@@ -23,6 +23,7 @@ var (
 	_ resource.Resource                = &ServiceAccountResource{}
 	_ resource.ResourceWithConfigure   = &ServiceAccountResource{}
 	_ resource.ResourceWithImportState = &ServiceAccountResource{}
+	_ resource.ResourceWithModifyPlan  = &ServiceAccountResource{}
 )
 
 func NewServiceAccountResource() resource.Resource {
@@ -73,7 +74,7 @@ func (r *ServiceAccountResource) Schema(_ context.Context, _ resource.SchemaRequ
 			},
 			"organization_role": schema.StringAttribute{
 				Required:            true,
-				MarkdownDescription: "Organization-level role assigned to the service account (`developer`, `user`). Admin service accounts can only be created in the Console.",
+				MarkdownDescription: "Organization-level role assigned to the service account (`developer`, `user`, or `admin`). `admin` is accepted only for an imported service account, because admin service accounts can only be created in the Console.",
 				Validators: []validator.String{
 					serviceAccountRoleValidator(),
 				},
@@ -250,4 +251,21 @@ func populateServiceAccountModel(m *ServiceAccountResourceModel, sa *client.Serv
 		m.ArchivedAt = types.StringNull()
 	}
 	m.Type = types.StringValue(sa.Type)
+}
+
+// ModifyPlan rejects creating a resource with organization_role = "admin". The Admin API only allows that in the Console,
+// so the value is accepted for import and read only.
+func (r *ServiceAccountResource) ModifyPlan(ctx context.Context, req resource.ModifyPlanRequest, resp *resource.ModifyPlanResponse) {
+	if !req.State.Raw.IsNull() || req.Plan.Raw.IsNull() {
+		return
+	}
+	var v types.String
+	resp.Diagnostics.Append(req.Plan.GetAttribute(ctx, path.Root("organization_role"), &v)...)
+	if !v.IsUnknown() && v.ValueString() == "admin" {
+		resp.Diagnostics.AddAttributeError(
+			path.Root("organization_role"),
+			"Admin Service Account Cannot Be Created",
+			"Service accounts with organization_role = \"admin\" can only be created in the Console. Import an existing one with terraform import instead.",
+		)
+	}
 }

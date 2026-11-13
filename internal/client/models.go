@@ -256,19 +256,22 @@ type RBACRole struct {
 	Type        string  `json:"type"`
 }
 
-// SpendLimitScope identifies the target of a spend limit rule.
+// SpendLimitScope identifies the target of a spend limit: user, workspace, or organization
+// for writes; reads can also return seat_tier, rbac_group, organization_service, or usage_tier.
 type SpendLimitScope struct {
-	Type   string `json:"type"`
-	UserID string `json:"user_id"`
+	Type        string `json:"type"`
+	UserID      string `json:"user_id,omitempty"`
+	WorkspaceID string `json:"workspace_id,omitempty"`
 }
 
-// SpendLimit represents a Claude Enterprise per-user spend limit override from /v1/organizations/spend_limits.
+// SpendLimit represents a spend limit from /v1/organizations/spend_limits.
 type SpendLimit struct {
 	ID        string          `json:"id"`
 	Amount    *string         `json:"amount"`
 	Currency  string          `json:"currency"`
 	Period    string          `json:"period"`
 	Scope     SpendLimitScope `json:"scope"`
+	IsEnabled *bool           `json:"is_enabled"`
 	CreatedAt string          `json:"created_at"`
 	UpdatedAt string          `json:"updated_at"`
 	Type      string          `json:"type"`
@@ -278,9 +281,9 @@ type SpendLimit struct {
 // Amount intentionally does NOT have omitempty so that nil serializes as `"amount": null`
 // when configuring an explicit unlimited spend override.
 type UpsertSpendLimitRequest struct {
-	UserID string  `json:"user_id"`
-	Period string  `json:"period"`
-	Amount *string `json:"amount"`
+	Scope  SpendLimitScope `json:"scope"`
+	Period string          `json:"period"`
+	Amount *string         `json:"amount"`
 }
 
 // ============================================================================

@@ -11,3 +11,15 @@ resource "anthropic_spend_limit" "principal_unlimited" {
   period    = "monthly"
   unlimited = true
 }
+
+# Claude Console workspace spend limit (early access, monthly only, always capped)
+resource "anthropic_spend_limit" "team_workspace" {
+  workspace_id = "wrkspc_01EXAMPLE"
+  amount       = "50000"
+}
+
+# Claude Console organization-wide spend limit (early access)
+resource "anthropic_spend_limit" "organization" {
+  organization = true
+  amount       = "100000"
+}
