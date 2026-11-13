@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"maps"
 	"net/http"
 	"net/http/httptest"
 	"regexp"
@@ -50,6 +51,28 @@ type mockAnthropicServer struct {
 	// returns {"role_ids": null, "roles": null}.
 	degradedReadGroups map[string]bool
 	lastUpdateRawBody  map[string]any
+
+	// extra holds state for routes registered in extraRoutes, keyed by the route's owner.
+	extra map[string]any
+}
+
+// extraRoutes lets each resource area's test file register mock routes from an init function.
+// The key is the first path segment ("webhooks"), or the first and third segments for nested
+// collections ("workspaces/rate_limits" for /workspaces/{id}/rate_limits). Handlers run with m.mu held
+// and do their own auth and anthropic-beta checks. sub is the path after the first segment.
+var extraRoutes = map[string]func(m *mockAnthropicServer, w http.ResponseWriter, r *http.Request, sub []string){}
+
+// extraState returns the state for an extra route owner, creating it with init on first use.
+func extraState[T any](m *mockAnthropicServer, key string, init func() T) T {
+	if m.extra == nil {
+		m.extra = map[string]any{}
+	}
+	v, ok := m.extra[key]
+	if !ok {
+		v = init()
+		m.extra[key] = v
+	}
+	return v.(T)
 }
 
 func newMockAnthropicServer(t *testing.T) *mockAnthropicServer {
@@ -221,6 +244,17 @@ func (m *mockAnthropicServer) handleRequest(w http.ResponseWriter, r *http.Reque
 	path := strings.TrimPrefix(r.URL.Path, "/v1/organizations/")
 	segments := strings.Split(path, "/")
 
+	if len(segments) >= 3 {
+		if h, ok := extraRoutes[segments[0]+"/"+segments[2]]; ok {
+			h(m, w, r, segments[1:])
+			return
+		}
+	}
+	if h, ok := extraRoutes[segments[0]]; ok {
+		h(m, w, r, segments[1:])
+		return
+	}
+
 	switch segments[0] {
 	case "me":
 		if r.Method == http.MethodGet && len(segments) == 1 {
@@ -266,8 +300,14 @@ func (m *mockAnthropicServer) handleRequest(w http.ResponseWriter, r *http.Reque
 		return
 
 	case "spend_limits":
-		if r.Header.Get("anthropic-beta") != client.BetaSpendLimitReads {
-			writeAPIError(w, http.StatusBadRequest, "invalid_request_error", "missing anthropic-beta header for spend_limits")
+		// Only the spend limit list endpoint takes the spend-limit-reads beta.
+		if len(segments) == 1 && r.Method == http.MethodGet {
+			if r.Header.Get("anthropic-beta") != client.BetaSpendLimitReads {
+				writeAPIError(w, http.StatusBadRequest, "invalid_request_error", "spend limit list requires the spend-limit-reads beta header")
+				return
+			}
+		} else if r.Header.Get("anthropic-beta") != "" {
+			writeAPIError(w, http.StatusBadRequest, "invalid_request_error", "unexpected anthropic-beta header for spend_limits")
 			return
 		}
 		m.handleSpendLimits(w, r, segments[1:])
@@ -687,15 +727,37 @@ func (m *mockAnthropicServer) handleRBACGroups(w http.ResponseWriter, r *http.Re
 	}
 }
 
+// mockDefaultWorkspaceID stands in for the organization's Default workspace in spend limit tests.
+const mockDefaultWorkspaceID = "wrkspc_mock_default"
+
 func (m *mockAnthropicServer) handleSpendLimits(w http.ResponseWriter, r *http.Request, sub []string) {
+	if len(sub) == 1 && sub[0] == "effective" && r.Method == http.MethodGet {
+		m.handleEffectiveSpendLimits(w, r)
+		return
+	}
+	if len(sub) == 0 && r.Method == http.MethodGet {
+		scopes := r.URL.Query()["scope_type[]"]
+		out := []client.SpendLimit{}
+		for _, id := range slices.Sorted(maps.Keys(m.spendLimits)) {
+			if sl := m.spendLimits[id]; len(scopes) == 0 || slices.Contains(scopes, sl.Scope.Type) {
+				out = append(out, sl)
+			}
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"data": out, "next_page": nil})
+		return
+	}
 	if len(sub) == 0 && r.Method == http.MethodPost {
 		var req client.UpsertSpendLimitRequest
 		_ = json.NewDecoder(r.Body).Decode(&req)
+		if req.Scope.Type == "workspace" && req.Scope.WorkspaceID == mockDefaultWorkspaceID {
+			writeAPIError(w, http.StatusBadRequest, "invalid_request_error", "the Default workspace cannot have a spend limit")
+			return
+		}
 
-		// Upsert semantics: reuse existing ID for same (user_id, period) if present.
+		// Upsert semantics: reuse existing ID for same (scope, period) if present.
 		var id string
 		for k, existing := range m.spendLimits {
-			if existing.Scope.UserID == req.UserID && existing.Period == req.Period {
+			if existing.Scope == req.Scope && existing.Period == req.Period {
 				id = k
 				break
 			}
@@ -705,14 +767,12 @@ func (m *mockAnthropicServer) handleSpendLimits(w http.ResponseWriter, r *http.R
 		}
 
 		sl := client.SpendLimit{
-			ID:       id,
-			Amount:   req.Amount,
-			Currency: "USD",
-			Period:   req.Period,
-			Scope: client.SpendLimitScope{
-				Type:   "user",
-				UserID: req.UserID,
-			},
+			ID:        id,
+			Amount:    req.Amount,
+			Currency:  "USD",
+			Period:    req.Period,
+			Scope:     req.Scope,
+			IsEnabled: new(true),
 			CreatedAt: "2026-02-01T00:00:00Z",
 			UpdatedAt: "2026-02-01T00:00:00Z",
 			Type:      "spend_limit",

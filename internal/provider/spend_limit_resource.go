@@ -10,10 +10,12 @@ import (
 
 	"github.com/hashicorp/terraform-plugin-framework-validators/boolvalidator"
 	"github.com/hashicorp/terraform-plugin-framework-validators/stringvalidator"
+	"github.com/hashicorp/terraform-plugin-framework/diag"
 	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/booldefault"
+	"github.com/hashicorp/terraform-plugin-framework/resource/schema/boolplanmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringdefault"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringplanmodifier"
@@ -23,9 +25,10 @@ import (
 )
 
 var (
-	_ resource.Resource                = &SpendLimitResource{}
-	_ resource.ResourceWithConfigure   = &SpendLimitResource{}
-	_ resource.ResourceWithImportState = &SpendLimitResource{}
+	_ resource.Resource                   = &SpendLimitResource{}
+	_ resource.ResourceWithConfigure      = &SpendLimitResource{}
+	_ resource.ResourceWithImportState    = &SpendLimitResource{}
+	_ resource.ResourceWithValidateConfig = &SpendLimitResource{}
 )
 
 func NewSpendLimitResource() resource.Resource {
@@ -37,14 +40,17 @@ type SpendLimitResource struct {
 }
 
 type SpendLimitResourceModel struct {
-	ID        types.String `tfsdk:"id"`
-	UserID    types.String `tfsdk:"user_id"`
-	Period    types.String `tfsdk:"period"`
-	Amount    types.String `tfsdk:"amount"`
-	Unlimited types.Bool   `tfsdk:"unlimited"`
-	Currency  types.String `tfsdk:"currency"`
-	CreatedAt types.String `tfsdk:"created_at"`
-	UpdatedAt types.String `tfsdk:"updated_at"`
+	ID           types.String `tfsdk:"id"`
+	UserID       types.String `tfsdk:"user_id"`
+	WorkspaceID  types.String `tfsdk:"workspace_id"`
+	Organization types.Bool   `tfsdk:"organization"`
+	IsEnabled    types.Bool   `tfsdk:"is_enabled"`
+	Period       types.String `tfsdk:"period"`
+	Amount       types.String `tfsdk:"amount"`
+	Unlimited    types.Bool   `tfsdk:"unlimited"`
+	Currency     types.String `tfsdk:"currency"`
+	CreatedAt    types.String `tfsdk:"created_at"`
+	UpdatedAt    types.String `tfsdk:"updated_at"`
 }
 
 func (r *SpendLimitResource) Metadata(_ context.Context, req resource.MetadataRequest, resp *resource.MetadataResponse) {
@@ -53,8 +59,11 @@ func (r *SpendLimitResource) Metadata(_ context.Context, req resource.MetadataRe
 
 func (r *SpendLimitResource) Schema(_ context.Context, _ resource.SchemaRequest, resp *resource.SchemaResponse) {
 	resp.Schema = schema.Schema{
-		MarkdownDescription: "Manages a per-user Claude Enterprise spend limit override (`/v1/organizations/spend_limits`). " +
-			"To prevent accidental unlimited spend overrides when variables are null, you must configure **either** `amount` (in minor currency units / cents) **or** `unlimited = true`.",
+		MarkdownDescription: "Manages a spend limit (`/v1/organizations/spend_limits`). Set exactly one scope: " +
+			"`user_id` (Claude Enterprise), `workspace_id` or `organization = true` (Claude Console). " +
+			"Set either `amount` in cents or `unlimited = true`. " +
+			"Workspace and organization limits are early access, monthly and always capped. The Default workspace cannot have one. " +
+			"Creating a workspace or organization limit fails if one already exists for that scope and period. Import it instead.",
 		Attributes: map[string]schema.Attribute{
 			"id": schema.StringAttribute{
 				MarkdownDescription: "Unique identifier of the spend limit (`spl_...`).",
@@ -64,8 +73,19 @@ func (r *SpendLimitResource) Schema(_ context.Context, _ resource.SchemaRequest,
 				},
 			},
 			"user_id": schema.StringAttribute{
-				MarkdownDescription: "Identifier of the organization user to whom this spend limit applies.",
-				Required:            true,
+				MarkdownDescription: "Identifier of the organization user to whom this spend limit applies (Claude Enterprise). Exactly one of `user_id`, `workspace_id`, or `organization` must be set.",
+				Optional:            true,
+				Validators: []validator.String{
+					idValidator(),
+					stringvalidator.ExactlyOneOf(path.MatchRoot("workspace_id"), path.MatchRoot("organization")),
+				},
+				PlanModifiers: []planmodifier.String{
+					stringplanmodifier.RequiresReplace(),
+				},
+			},
+			"workspace_id": schema.StringAttribute{
+				MarkdownDescription: "Identifier of the Claude Console workspace to which this spend limit applies (early access).",
+				Optional:            true,
 				Validators: []validator.String{
 					idValidator(),
 				},
@@ -73,20 +93,34 @@ func (r *SpendLimitResource) Schema(_ context.Context, _ resource.SchemaRequest,
 					stringplanmodifier.RequiresReplace(),
 				},
 			},
+			"organization": schema.BoolAttribute{
+				MarkdownDescription: "Set to `true` for the Claude Console organization-wide spend limit (early access).",
+				Optional:            true,
+				Validators: []validator.Bool{
+					boolvalidator.Equals(true),
+				},
+				PlanModifiers: []planmodifier.Bool{
+					boolplanmodifier.RequiresReplace(),
+				},
+			},
+			"is_enabled": schema.BoolAttribute{
+				MarkdownDescription: "`false` when extra usage is switched off for the organization (organization limit only). The amount is kept and applies again when switched back on. Always `true` for other scopes.",
+				Computed:            true,
+			},
 			"period": schema.StringAttribute{
-				MarkdownDescription: "Billing period for the spend limit. Currently only `monthly` is supported.",
+				MarkdownDescription: "Window the limit resets over: `daily`, `weekly`, or `monthly` (default). Workspace and organization limits must be `monthly`.",
 				Optional:            true,
 				Computed:            true,
 				Default:             stringdefault.StaticString("monthly"),
 				Validators: []validator.String{
-					stringvalidator.OneOf("monthly"),
+					stringvalidator.OneOf("daily", "weekly", "monthly"),
 				},
 				PlanModifiers: []planmodifier.String{
 					stringplanmodifier.RequiresReplace(),
 				},
 			},
 			"amount": schema.StringAttribute{
-				MarkdownDescription: "Spend cap in minor currency units (cents) as a string, e.g. `\"10000\"` for $100.00 or `\"0\"` for $0.00. " +
+				MarkdownDescription: "Spend cap in minor currency units (cents) as a string, for example `\"10000\"` for $100.00 or `\"0\"` for $0.00. " +
 					"Mutually exclusive with `unlimited = true`.",
 				Optional: true,
 				Validators: []validator.String{
@@ -95,7 +129,7 @@ func (r *SpendLimitResource) Schema(_ context.Context, _ resource.SchemaRequest,
 				},
 			},
 			"unlimited": schema.BoolAttribute{
-				MarkdownDescription: "Set to `true` to explicitly grant an unlimited spend override (`\"amount\": null` in the Anthropic API). " +
+				MarkdownDescription: "Set to `true` for an unlimited spend override. " +
 					"Mutually exclusive with `amount`.",
 				Optional: true,
 				Computed: true,
@@ -155,17 +189,35 @@ func (r *SpendLimitResource) Create(ctx context.Context, req resource.CreateRequ
 		amountPtr = &amt
 	}
 
+	scope := spendLimitScope(&plan)
+	// The API upserts by (scope, period), so without this check Create would adopt an existing
+	// workspace or organization limit and destroy would then delete it.
+	if scope.Type != "user" {
+		existing, err := r.client.ListSpendLimits(ctx, []string{scope.Type})
+		if err != nil {
+			resp.Diagnostics.AddError("Error Checking Existing Spend Limits", spendLimitErrorDetail(&plan, err))
+			return
+		}
+		for _, e := range existing {
+			if e.Scope == scope && e.Period == plan.Period.ValueString() {
+				resp.Diagnostics.AddError("Spend Limit Already Exists",
+					fmt.Sprintf("A %s %s spend limit already exists (%s). Import it instead of creating a new one:\n\n  terraform import anthropic_spend_limit.<name> %s", e.Period, scope.Type, e.ID, e.ID))
+				return
+			}
+		}
+	}
+
 	limit, err := r.client.UpsertSpendLimit(ctx, client.UpsertSpendLimitRequest{
-		UserID: plan.UserID.ValueString(),
+		Scope:  scope,
 		Period: plan.Period.ValueString(),
 		Amount: amountPtr,
 	})
 	if err != nil {
-		resp.Diagnostics.AddError("Error Creating Spend Limit", err.Error())
+		resp.Diagnostics.AddError("Error Creating Spend Limit", spendLimitErrorDetail(&plan, err))
 		return
 	}
 
-	mapSpendLimitToState(limit, &plan)
+	resp.Diagnostics.Append(mapSpendLimitToState(limit, &plan)...)
 	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
 }
 
@@ -186,7 +238,10 @@ func (r *SpendLimitResource) Read(ctx context.Context, req resource.ReadRequest,
 		return
 	}
 
-	mapSpendLimitToState(limit, &state)
+	resp.Diagnostics.Append(mapSpendLimitToState(limit, &state)...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
 	resp.Diagnostics.Append(resp.State.Set(ctx, &state)...)
 }
 
@@ -204,16 +259,16 @@ func (r *SpendLimitResource) Update(ctx context.Context, req resource.UpdateRequ
 	}
 
 	limit, err := r.client.UpsertSpendLimit(ctx, client.UpsertSpendLimitRequest{
-		UserID: plan.UserID.ValueString(),
+		Scope:  spendLimitScope(&plan),
 		Period: plan.Period.ValueString(),
 		Amount: amountPtr,
 	})
 	if err != nil {
-		resp.Diagnostics.AddError("Error Updating Spend Limit", err.Error())
+		resp.Diagnostics.AddError("Error Updating Spend Limit", spendLimitErrorDetail(&plan, err))
 		return
 	}
 
-	mapSpendLimitToState(limit, &plan)
+	resp.Diagnostics.Append(mapSpendLimitToState(limit, &plan)...)
 	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
 }
 
@@ -242,10 +297,63 @@ func (r *SpendLimitResource) ImportState(ctx context.Context, req resource.Impor
 	resource.ImportStatePassthroughID(ctx, path.Root("id"), req, resp)
 }
 
-func mapSpendLimitToState(limit *client.SpendLimit, model *SpendLimitResourceModel) {
+func (r *SpendLimitResource) ValidateConfig(ctx context.Context, req resource.ValidateConfigRequest, resp *resource.ValidateConfigResponse) {
+	var cfg SpendLimitResourceModel
+	resp.Diagnostics.Append(req.Config.Get(ctx, &cfg)...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+	if cfg.WorkspaceID.IsNull() && cfg.Organization.IsNull() {
+		return
+	}
+	if !cfg.Period.IsNull() && !cfg.Period.IsUnknown() && cfg.Period.ValueString() != "monthly" {
+		resp.Diagnostics.AddAttributeError(path.Root("period"), "Invalid Spend Limit Period",
+			"Workspace and organization spend limits only support period = \"monthly\".")
+	}
+	if cfg.Unlimited.ValueBool() {
+		resp.Diagnostics.AddAttributeError(path.Root("unlimited"), "Invalid Unlimited Spend Limit",
+			"Workspace and organization spend limits always carry an amount. Set amount instead of unlimited = true.")
+	}
+}
+
+func spendLimitScope(m *SpendLimitResourceModel) client.SpendLimitScope {
+	switch {
+	case !m.WorkspaceID.IsNull():
+		return client.SpendLimitScope{Type: "workspace", WorkspaceID: m.WorkspaceID.ValueString()}
+	case m.Organization.ValueBool():
+		return client.SpendLimitScope{Type: "organization"}
+	default:
+		return client.SpendLimitScope{Type: "user", UserID: m.UserID.ValueString()}
+	}
+}
+
+func spendLimitErrorDetail(m *SpendLimitResourceModel, err error) string {
+	if !m.WorkspaceID.IsNull() && (client.IsBadRequest(err) || client.IsForbidden(err)) {
+		return err.Error() + "\n\nWorkspace spend limits are a Claude Console early access feature, and the Default workspace cannot have a spend limit. Check that workspace_id names a non-default workspace and that the organization has access."
+	}
+	return err.Error()
+}
+
+func mapSpendLimitToState(limit *client.SpendLimit, model *SpendLimitResourceModel) diag.Diagnostics {
+	var diags diag.Diagnostics
+	model.UserID = types.StringNull()
+	model.WorkspaceID = types.StringNull()
+	model.Organization = types.BoolNull()
+	switch limit.Scope.Type {
+	case "user":
+		model.UserID = types.StringValue(limit.Scope.UserID)
+	case "workspace":
+		model.WorkspaceID = types.StringValue(limit.Scope.WorkspaceID)
+	case "organization":
+		model.Organization = types.BoolValue(true)
+	default:
+		diags.AddError("Unsupported Spend Limit Scope",
+			fmt.Sprintf("Spend limit %s has scope type %q, which this resource does not manage (only user, workspace, and organization).", limit.ID, limit.Scope.Type))
+		return diags
+	}
 	model.ID = types.StringValue(limit.ID)
-	model.UserID = types.StringValue(limit.Scope.UserID)
 	model.Period = types.StringValue(limit.Period)
+	model.IsEnabled = types.BoolValue(limit.IsEnabled == nil || *limit.IsEnabled)
 	model.Currency = types.StringValue(limit.Currency)
 	model.CreatedAt = types.StringValue(limit.CreatedAt)
 	model.UpdatedAt = types.StringValue(limit.UpdatedAt)
@@ -257,4 +365,5 @@ func mapSpendLimitToState(limit *client.SpendLimit, model *SpendLimitResourceMod
 		model.Amount = types.StringValue(*limit.Amount)
 		model.Unlimited = types.BoolValue(false)
 	}
+	return diags
 }

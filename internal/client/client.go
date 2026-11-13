@@ -987,17 +987,32 @@ func (c *Client) ListRBACRoles(ctx context.Context) ([]RBACRole, error) {
 // Claude Enterprise: Spend Limits
 // ============================================================================
 
-// UpsertSpendLimit creates or updates a per-user spend limit override (POST /v1/organizations/spend_limits).
+// UpsertSpendLimit creates or updates a spend limit keyed on (scope, period) (POST /v1/organizations/spend_limits).
+// Only ListSpendLimits sends the spend-limit-reads beta header; set, get, and delete send none.
 func (c *Client) UpsertSpendLimit(ctx context.Context, req UpsertSpendLimitRequest) (*SpendLimit, error) {
 	p, err := Path("spend_limits")
 	if err != nil {
 		return nil, err
 	}
 	var sl SpendLimit
-	if err := c.Do(ctx, http.MethodPost, p, req, &sl, WithBeta(BetaSpendLimitReads)); err != nil {
+	if err := c.Do(ctx, http.MethodPost, p, req, &sl); err != nil {
 		return nil, err
 	}
 	return &sl, nil
+}
+
+// ListSpendLimits lists the organization's spend limits, optionally filtered by scope type
+// (GET /v1/organizations/spend_limits, beta spend-limit-reads).
+func (c *Client) ListSpendLimits(ctx context.Context, scopeTypes []string) ([]SpendLimit, error) {
+	p, err := Path("spend_limits")
+	if err != nil {
+		return nil, err
+	}
+	q := url.Values{}
+	for _, v := range scopeTypes {
+		q.Add("scope_type[]", v)
+	}
+	return ListAll[SpendLimit](ctx, c, p, q, WithBeta(BetaSpendLimitReads))
 }
 
 // GetSpendLimit retrieves a spend limit override by ID (GET /v1/organizations/spend_limits/{id}).
@@ -1007,19 +1022,19 @@ func (c *Client) GetSpendLimit(ctx context.Context, spendLimitID string) (*Spend
 		return nil, err
 	}
 	var sl SpendLimit
-	if err := c.Do(ctx, http.MethodGet, p, nil, &sl, WithBeta(BetaSpendLimitReads)); err != nil {
+	if err := c.Do(ctx, http.MethodGet, p, nil, &sl); err != nil {
 		return nil, err
 	}
 	return &sl, nil
 }
 
-// DeleteSpendLimit deletes a per-user spend limit override (DELETE /v1/organizations/spend_limits/{id}).
+// DeleteSpendLimit deletes a spend limit (DELETE /v1/organizations/spend_limits/{id}).
 func (c *Client) DeleteSpendLimit(ctx context.Context, spendLimitID string) error {
 	p, err := Path("spend_limits", spendLimitID)
 	if err != nil {
 		return err
 	}
-	return c.Do(ctx, http.MethodDelete, p, nil, nil, WithBeta(BetaSpendLimitReads))
+	return c.Do(ctx, http.MethodDelete, p, nil, nil)
 }
 
 // ============================================================================
