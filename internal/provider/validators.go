@@ -39,10 +39,11 @@ func slugValidator() validator.String {
 	)
 }
 
-// serviceAccountRoleValidator validates organization-level roles supported for API-created service accounts.
-// Admin service accounts can only be created in the Console, not via the REST API.
+// serviceAccountRoleValidator validates organization-level service account roles. admin is accepted so
+// Console-created admin service accounts can be imported. ModifyPlan blocks creating one.
 func serviceAccountRoleValidator() validator.String {
 	return stringvalidator.OneOf(
+		"admin",
 		"developer",
 		"user",
 	)
@@ -58,9 +59,11 @@ func serviceAccountWorkspaceRoleValidator() validator.String {
 	)
 }
 
-// federationOAuthScopeValidator validates OAuth scopes allowed on Workload Identity Federation rules.
+// federationOAuthScopeValidator validates OAuth scopes on Workload Identity Federation rules. org:admin is
+// accepted so Console-created bootstrap rules can be imported. ModifyPlan blocks creating one.
 func federationOAuthScopeValidator() validator.String {
 	return stringvalidator.OneOf(
+		"org:admin",
 		"workspace:developer",
 		"workspace:inference",
 	)

@@ -20,7 +20,7 @@ Manages a Workload Identity Federation (WIF) rule (`/v1/organizations/federation
 - `issuer_id` (String) ID of the associated federation issuer (`fdis_...`). Immutable after creation.
 - `match` (Attributes) Claim matching conditions that incoming verified JWTs must satisfy. (see [below for nested schema](#nestedatt--match))
 - `name` (String) Slug name of the federation rule (`^[a-z0-9-]+$`, 1-255 characters).
-- `oauth_scope` (String) OAuth scope granted on minted tokens (`workspace:developer` or `workspace:inference`).
+- `oauth_scope` (String) OAuth scope granted on minted tokens (`workspace:developer`, `workspace:inference`, or `org:admin`). `org:admin` is accepted only for an imported rule, because `org:admin` rules can only be created in the Console.
 - `service_account_id` (String) Target service account ID (`svac_...`) that minted tokens will act as.
 
 ### Optional

@@ -18,7 +18,7 @@ Manages a non-human Anthropic service account (`/v1/organizations/service_accoun
 ### Required
 
 - `name` (String) Slug name of the service account (`^[a-z0-9-]+$`, 1-255 characters). Immutable after creation; changing `name` forces replacement.
-- `organization_role` (String) Organization-level role assigned to the service account (`developer`, `user`). Admin service accounts can only be created in the Console.
+- `organization_role` (String) Organization-level role assigned to the service account (`developer`, `user`, or `admin`). `admin` is accepted only for an imported service account, because admin service accounts can only be created in the Console.
 
 ### Optional
 

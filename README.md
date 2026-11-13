@@ -48,7 +48,7 @@ The provider cannot create the federation rule it authenticates through. The API
 3. Match on claims that identify one workload, plus the audience `https://api.anthropic.com`.
 4. Copy the organization, rule, service account and workspace IDs into the `federation` block or the environment variables.
 
-Every other issuer, service account and rule can then be managed in code.
+Every other issuer, service account and rule can then be managed in code. The bootstrap service account and rule can be imported, so they show up in code, but Terraform cannot create them.
 
 `subject_prefix` is an exact match on the JWT `sub` claim unless it ends in `*`, which makes it a prefix match. `repo:org/repo:*` admits every branch, tag and pull request in the repo. For Google, match `sub` (the service account's numeric unique ID) and `email` in `claims`.
 
@@ -73,7 +73,7 @@ Every other issuer, service account and rule can then be managed in code.
 | WIF | Service account workspace membership | Yes | Yes | |
 | WIF | Federation issuers | Yes | Yes | Destroy archives. |
 | WIF | Federation rules (`workspace:developer`, `workspace:inference`) | Yes | Yes | Multiple workspaces, description. Destroy archives. |
-| WIF | Federation rules with `org:admin` | No | | Needs a Console session. See [Bootstrapping WIF](#bootstrapping-wif). |
+| WIF | Admin service accounts and `org:admin` federation rules | Import only | No | Created in the Console. See [Bootstrapping WIF](#bootstrapping-wif). Creating one in Terraform fails at plan time. |
 
 Data sources cover the organization, users, invites, workspaces, workspace members, API keys, groups, roles, service accounts, federation issuers and federation rules. See [docs/](docs/) for attributes.
 

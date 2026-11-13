@@ -29,6 +29,7 @@ var (
 	_ resource.Resource                   = &FederationRuleResource{}
 	_ resource.ResourceWithConfigure      = &FederationRuleResource{}
 	_ resource.ResourceWithImportState    = &FederationRuleResource{}
+	_ resource.ResourceWithModifyPlan     = &FederationRuleResource{}
 	_ resource.ResourceWithValidateConfig = &FederationRuleResource{}
 )
 
@@ -113,7 +114,7 @@ func (r *FederationRuleResource) Schema(_ context.Context, _ resource.SchemaRequ
 			},
 			"oauth_scope": schema.StringAttribute{
 				Required:            true,
-				MarkdownDescription: "OAuth scope granted on minted tokens (`workspace:developer` or `workspace:inference`).",
+				MarkdownDescription: "OAuth scope granted on minted tokens (`workspace:developer`, `workspace:inference`, or `org:admin`). `org:admin` is accepted only for an imported rule, because `org:admin` rules can only be created in the Console.",
 				Validators: []validator.String{
 					federationOAuthScopeValidator(),
 				},
@@ -585,4 +586,21 @@ func populateFederationRuleModel(ctx context.Context, m *FederationRuleResourceM
 	}
 	m.Type = types.StringValue(fr.Type)
 	return diags
+}
+
+// ModifyPlan rejects creating a resource with oauth_scope = "org:admin". The Admin API only allows that in the Console,
+// so the value is accepted for import and read only.
+func (r *FederationRuleResource) ModifyPlan(ctx context.Context, req resource.ModifyPlanRequest, resp *resource.ModifyPlanResponse) {
+	if !req.State.Raw.IsNull() || req.Plan.Raw.IsNull() {
+		return
+	}
+	var v types.String
+	resp.Diagnostics.Append(req.Plan.GetAttribute(ctx, path.Root("oauth_scope"), &v)...)
+	if !v.IsUnknown() && v.ValueString() == "org:admin" {
+		resp.Diagnostics.AddAttributeError(
+			path.Root("oauth_scope"),
+			"org:admin Federation Rule Cannot Be Created",
+			"Federation rules with oauth_scope = \"org:admin\" can only be created in the Console. Import an existing one with terraform import instead.",
+		)
+	}
 }
