@@ -22,7 +22,7 @@ terraform {
 
 # Option 1: Static Organization Admin API Key (Claude Console & Enterprise resources;
 # note that Service Accounts and WIF resources require Option 2 or Option 3).
-# Set ANTHROPIC_ADMIN_API_KEY in the environment (`sk-ant-admin01-...`).
+# Set ANTHROPIC_ADMIN_API_KEY in the environment (`sk-ant-admin01-...` or `sk-ant-api01-...`).
 provider "anthropic" {
   # api_key     = var.anthropic_admin_api_key
   # base_url    = "https://api.anthropic.com"
@@ -52,7 +52,7 @@ provider "anthropic" {
 
 ### Optional
 
-- `api_key` (String, Sensitive) Anthropic Admin API key (`sk-ant-admin...`). Defaults to `ANTHROPIC_ADMIN_API_KEY`. Note: Service Account and Workload Identity Federation endpoints reject static Admin API keys and require `oauth_token` or `federation`.
+- `api_key` (String, Sensitive) Anthropic Admin API key: `sk-ant-admin01-...` from the Claude Console or `sk-ant-api01-...` from Claude Enterprise. Defaults to `ANTHROPIC_ADMIN_API_KEY`. Note: Service Account and Workload Identity Federation endpoints reject static Admin API keys and require `oauth_token` or `federation`.
 - `base_url` (String) Base URL for the Anthropic API. Defaults to `https://api.anthropic.com`. Must use `https`, except `http` on a loopback host for local testing. Intentionally does not read `ANTHROPIC_BASE_URL` from the environment to prevent credential exfiltration via ambient proxy variables.
 - `federation` (Attributes) Workload Identity Federation (WIF) configuration for exchanging an external OIDC JWT (e.g. GitHub Actions, GCP, AWS, Kubernetes) for a short-lived Anthropic OAuth access token via `POST /v1/oauth/token`. (see [below for nested schema](#nestedatt--federation))
 - `max_retries` (Number) Maximum number of retries on HTTP 429 rate-limit or 5xx/529 transient errors. Defaults to `4`.

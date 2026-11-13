@@ -8,7 +8,7 @@ terraform {
 
 # Option 1: Static Organization Admin API Key (Claude Console & Enterprise resources;
 # note that Service Accounts and WIF resources require Option 2 or Option 3).
-# Set ANTHROPIC_ADMIN_API_KEY in the environment (`sk-ant-admin01-...`).
+# Set ANTHROPIC_ADMIN_API_KEY in the environment (`sk-ant-admin01-...` or `sk-ant-api01-...`).
 provider "anthropic" {
   # api_key     = var.anthropic_admin_api_key
   # base_url    = "https://api.anthropic.com"
