@@ -16,7 +16,7 @@ provider "anthropic" {
 }
 
 # Option 2: OAuth Bearer Token with `org:admin` scope (supports all resources including WIF).
-# Set ANTHROPIC_OAUTH_TOKEN or ANTHROPIC_AUTH_TOKEN in the environment.
+# Set ANTHROPIC_OAUTH_TOKEN in the environment.
 # provider "anthropic" {
 #   oauth_token = var.anthropic_oauth_token
 # }

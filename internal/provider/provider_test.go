@@ -84,6 +84,7 @@ func newMockAnthropicServer(t *testing.T) *mockAnthropicServer {
 				Name:           "prod-service-key",
 				Status:         "active",
 				PartialKeyHint: "sk-ant-api03-xyz...123",
+				Scope:          &client.APIKeyScope{Type: "organization"},
 				CreatedAt:      "2026-01-01T00:00:00Z",
 				CreatedBy: &client.ActorRef{
 					ID:   "user_01JEXISTING",
@@ -95,7 +96,7 @@ func newMockAnthropicServer(t *testing.T) *mockAnthropicServer {
 		rbacRoles: []client.RBACRole{
 			{
 				ID:          "role_admin",
-				Name:        "Admin",
+				DisplayName: "Admin",
 				Description: &descAdmin,
 				CreatedAt:   "2026-01-01T00:00:00Z",
 				UpdatedAt:   "2026-01-01T00:00:00Z",
@@ -103,7 +104,7 @@ func newMockAnthropicServer(t *testing.T) *mockAnthropicServer {
 			},
 			{
 				ID:          "role_member",
-				Name:        "Member",
+				DisplayName: "Member",
 				Description: &descMember,
 				CreatedAt:   "2026-01-01T00:00:00Z",
 				UpdatedAt:   "2026-01-01T00:00:00Z",
@@ -205,8 +206,12 @@ func writeAPIError(w http.ResponseWriter, status int, errType, message string) {
 func (m *mockAnthropicServer) handleRequest(w http.ResponseWriter, r *http.Request) {
 	hasAPIKey := r.Header.Get("x-api-key") != ""
 	hasBearer := strings.HasPrefix(r.Header.Get("Authorization"), "Bearer ")
-	if (!hasAPIKey && !hasBearer) || r.Header.Get("anthropic-version") == "" {
-		writeAPIError(w, http.StatusUnauthorized, "authentication_error", "missing authentication or anthropic-version header")
+	if hasAPIKey == hasBearer || r.Header.Get("anthropic-version") != client.DefaultAnthropicVersion {
+		writeAPIError(w, http.StatusUnauthorized, "authentication_error", "expected exactly one credential header and anthropic-version "+client.DefaultAnthropicVersion)
+		return
+	}
+	if r.URL.Query().Has("beta") {
+		writeAPIError(w, http.StatusBadRequest, "invalid_request_error", "unexpected beta query param")
 		return
 	}
 
@@ -240,8 +245,8 @@ func (m *mockAnthropicServer) handleRequest(w http.ResponseWriter, r *http.Reque
 		return
 
 	case "rbac_roles":
-		if r.Header.Get("anthropic-beta") != client.BetaCEUserManagement || r.URL.Query().Get("beta") != "true" {
-			writeAPIError(w, http.StatusBadRequest, "invalid_request_error", "missing beta header or beta=true query param for rbac_roles")
+		if r.Header.Get("anthropic-beta") != "" {
+			writeAPIError(w, http.StatusBadRequest, "invalid_request_error", "unexpected anthropic-beta header for rbac_roles")
 			return
 		}
 		if r.Method == http.MethodGet && len(segments) == 1 {
@@ -253,16 +258,16 @@ func (m *mockAnthropicServer) handleRequest(w http.ResponseWriter, r *http.Reque
 		}
 
 	case "rbac_groups":
-		if r.Header.Get("anthropic-beta") != client.BetaCEUserManagement || r.URL.Query().Get("beta") != "true" {
-			writeAPIError(w, http.StatusBadRequest, "invalid_request_error", "missing beta header or beta=true query param for rbac_groups")
+		if r.Header.Get("anthropic-beta") != "" {
+			writeAPIError(w, http.StatusBadRequest, "invalid_request_error", "unexpected anthropic-beta header for rbac_groups")
 			return
 		}
 		m.handleRBACGroups(w, r, segments[1:])
 		return
 
 	case "spend_limits":
-		if r.Header.Get("anthropic-beta") != client.BetaSpendLimitReads || r.URL.Query().Get("beta") != "true" {
-			writeAPIError(w, http.StatusBadRequest, "invalid_request_error", "missing beta header or beta=true query param for spend_limits")
+		if r.Header.Get("anthropic-beta") != client.BetaSpendLimitReads {
+			writeAPIError(w, http.StatusBadRequest, "invalid_request_error", "missing anthropic-beta header for spend_limits")
 			return
 		}
 		m.handleSpendLimits(w, r, segments[1:])
@@ -1089,8 +1094,13 @@ resource "anthropic_workspace_member" "alice_eng" {
 }
 
 data "anthropic_users" "all" {}
+
+data "anthropic_api_key" "existing" {
+  id = "apikey_01JEXISTING"
+}
 `,
 				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckNoResourceAttr("data.anthropic_api_key.existing", "workspace_id"),
 					resource.TestCheckResourceAttr("data.anthropic_organization.current", "id", "org_01JTESTORG"),
 					resource.TestCheckResourceAttr("data.anthropic_organization.current", "name", "Example Org"),
 					resource.TestCheckResourceAttr("anthropic_invite.bob", "email", "bob@example.com"),
@@ -1168,6 +1178,7 @@ resource "anthropic_spend_limit" "alice_cap" {
 `,
 				Check: resource.ComposeAggregateTestCheckFunc(
 					resource.TestCheckResourceAttr("data.anthropic_rbac_roles.all", "roles.#", "2"),
+					resource.TestCheckResourceAttr("data.anthropic_rbac_roles.all", "roles.0.name", "Admin"),
 					resource.TestCheckResourceAttr("anthropic_rbac_group.security", "name", "Security-Team"),
 					resource.TestCheckResourceAttr("anthropic_rbac_group.security", "source_type", "api"),
 					resource.TestCheckResourceAttr("anthropic_rbac_group.security", "role_ids.#", "0"),
@@ -1177,7 +1188,7 @@ resource "anthropic_spend_limit" "alice_cap" {
 					resource.TestCheckResourceAttr("anthropic_spend_limit.alice_cap", "currency", "USD"),
 				),
 			},
-			// Rename custom RBAC group via POST /v1/organizations/rbac_groups/{id}?beta=true
+			// Rename custom RBAC group via POST /v1/organizations/rbac_groups/{id}
 			// and switch spend limit from capped ("25000") to explicit unlimited (unlimited = true -> "amount": null)
 			{
 				Config: mock.providerConfig() + `
@@ -1625,6 +1636,30 @@ resource "anthropic_federation_rule" "r" {
 					resource.TestCheckResourceAttr(r, "applies_to_all_workspaces", "true"),
 					resource.TestCheckNoResourceAttr(r, "workspace_ids"),
 				),
+			},
+		},
+	})
+}
+
+// ANTHROPIC_AUTH_TOKEN belongs to other tools (Claude Code, LLM gateways) and must not become the admin credential.
+func TestAuthTokenEnvIsNotACredential(t *testing.T) {
+	for _, k := range []string{"ANTHROPIC_ADMIN_API_KEY", "ANTHROPIC_OAUTH_TOKEN", "ANTHROPIC_FEDERATION_RULE_ID"} {
+		t.Setenv(k, "")
+	}
+	t.Setenv("ANTHROPIC_AUTH_TOKEN", "gateway-token")
+
+	resource.UnitTest(t, resource.TestCase{
+		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+		Steps: []resource.TestStep{
+			{
+				Config: `
+provider "anthropic" {
+  base_url = "http://127.0.0.1:1"
+}
+
+data "anthropic_organization" "current" {}
+`,
+				ExpectError: regexp.MustCompile(`Missing Anthropic Authentication Credentials`),
 			},
 		},
 	})

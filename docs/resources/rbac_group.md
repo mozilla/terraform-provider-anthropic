@@ -3,12 +3,12 @@
 page_title: "anthropic_rbac_group Resource - anthropic"
 subcategory: ""
 description: |-
-  Manages a Claude Enterprise RBAC group (/v1/organizations/rbac_groups?beta=true). Supports creating and renaming custom API groups (source_type = "api") and importing SCIM-synced groups (source_type = "scim"). Note that role_ids is read-only (Computed) because the Anthropic Admin API only accepts name on create and update; role assignments to groups are configured in the Claude Enterprise UI.
+  Manages a Claude Enterprise RBAC group (/v1/organizations/rbac_groups). Supports creating and renaming custom API groups (source_type = "api") and importing SCIM-synced groups (source_type = "scim"). Note that role_ids is read-only (Computed) because the Anthropic Admin API only accepts name on create and update; role assignments to groups are configured in the Claude Enterprise UI.
 ---
 
 # anthropic_rbac_group (Resource)
 
-Manages a Claude Enterprise RBAC group (`/v1/organizations/rbac_groups?beta=true`). Supports creating and renaming custom API groups (`source_type = "api"`) and importing SCIM-synced groups (`source_type = "scim"`). Note that `role_ids` is read-only (Computed) because the Anthropic Admin API only accepts `name` on create and update; role assignments to groups are configured in the Claude Enterprise UI.
+Manages a Claude Enterprise RBAC group (`/v1/organizations/rbac_groups`). Supports creating and renaming custom API groups (`source_type = "api"`) and importing SCIM-synced groups (`source_type = "scim"`). Note that `role_ids` is read-only (Computed) because the Anthropic Admin API only accepts `name` on create and update; role assignments to groups are configured in the Claude Enterprise UI.
 
 ## Example Usage
 

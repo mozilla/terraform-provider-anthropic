@@ -37,4 +37,4 @@ Read-Only:
 - `partial_key_hint` (String) Partially redacted hint of the API key.
 - `status` (String) Operational status of the API key.
 - `type` (String) Object type (`api_key`).
-- `workspace_id` (String) Workspace ID the API key belongs to, or `null` for the default workspace.
+- `workspace_id` (String) ID of the workspace the API key is bound to, including the Default workspace. `null` for a key that can be used in every workspace.

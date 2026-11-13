@@ -83,7 +83,7 @@ func (r *APIKeyResource) Schema(_ context.Context, _ resource.SchemaRequest, res
 			},
 			"workspace_id": schema.StringAttribute{
 				Computed:            true,
-				MarkdownDescription: "Workspace ID the API key belongs to, or `null` for the default workspace.",
+				MarkdownDescription: "ID of the workspace the API key is bound to, including the Default workspace. `null` for a key that can be used in every workspace.",
 			},
 			"created_at": schema.StringAttribute{
 				Computed:            true,
@@ -206,8 +206,8 @@ func mapAPIKeyToModel(key *client.APIKey, m *APIKeyResourceModel) {
 	m.Name = types.StringValue(key.Name)
 	m.Status = types.StringValue(key.Status)
 	m.PartialKeyHint = types.StringValue(key.PartialKeyHint)
-	if key.WorkspaceID != nil && *key.WorkspaceID != "" {
-		m.WorkspaceID = types.StringValue(*key.WorkspaceID)
+	if ws := key.ScopeWorkspaceID(); ws != "" {
+		m.WorkspaceID = types.StringValue(ws)
 	} else {
 		m.WorkspaceID = types.StringNull()
 	}

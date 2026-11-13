@@ -72,12 +72,9 @@ func ParseAPIError(statusCode int, headers http.Header, body []byte) *APIError {
 		return apiErr
 	}
 
-	// Truncate non-JSON fallback bodies to avoid polluting diagnostics.
-	const maxRawErrorLen = 512
-	if len(trimmed) > maxRawErrorLen {
-		trimmed = trimmed[:maxRawErrorLen] + "...(truncated)"
-	}
-	apiErr.Message = trimmed
+	// A body that is not an API error envelope can come from a proxy or gateway and may
+	// echo the request, credentials included, so it is not shown.
+	apiErr.Message = http.StatusText(statusCode) + " (response body was not an Anthropic API error)"
 	return apiErr
 }
 

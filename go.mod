@@ -2,10 +2,10 @@ module github.com/mozilla/terraform-provider-anthropic
 
 go 1.26.0
 
-toolchain go1.26.10
+toolchain go1.26.11
 
 require (
-	github.com/anthropics/anthropic-sdk-go v1.84.0
+	github.com/anthropics/anthropic-sdk-go/v2 v2.9.0
 	github.com/hashicorp/terraform-plugin-framework v1.19.0
 	github.com/hashicorp/terraform-plugin-framework-validators v0.19.0
 	github.com/hashicorp/terraform-plugin-go v0.31.0
