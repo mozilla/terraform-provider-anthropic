@@ -17,7 +17,7 @@ The provider takes one of three credentials.
 
 | Credential | Provider setting | Environment variable | Covers |
 |---|---|---|---|
-| Admin API key (`sk-ant-admin...`) | `api_key` | `ANTHROPIC_ADMIN_API_KEY` | Console and Enterprise resources. The API rejects admin keys on service account and federation endpoints. |
+| Admin API key (`sk-ant-admin01-...` from the Console, `sk-ant-api01-...` from Enterprise) | `api_key` | `ANTHROPIC_ADMIN_API_KEY` | Console and Enterprise resources. The API rejects admin keys on service account and federation endpoints. |
 | OAuth token with `org:admin` scope | `oauth_token` | `ANTHROPIC_OAUTH_TOKEN` | All resources except those listed below |
 | WIF token exchange | `federation` | See below | All resources except those listed below, when the rule grants `org:admin` |
 

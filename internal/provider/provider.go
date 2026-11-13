@@ -72,7 +72,7 @@ func (p *AnthropicProvider) Schema(_ context.Context, _ provider.SchemaRequest, 
 			"api_key": schema.StringAttribute{
 				Optional:  true,
 				Sensitive: true,
-				MarkdownDescription: "Anthropic Admin API key (`sk-ant-admin...`). " +
+				MarkdownDescription: "Anthropic Admin API key: `sk-ant-admin01-...` from the Claude Console or `sk-ant-api01-...` from Claude Enterprise. " +
 					"Defaults to `ANTHROPIC_ADMIN_API_KEY`. " +
 					"Note: Service Account and Workload Identity Federation endpoints reject static Admin API keys and require `oauth_token` or `federation`.",
 			},
@@ -228,11 +228,11 @@ func (p *AnthropicProvider) Configure(ctx context.Context, req provider.Configur
 		return
 	}
 
-	if apiKey != "" && !strings.HasPrefix(apiKey, "sk-ant-admin") {
+	if apiKey != "" && !strings.HasPrefix(apiKey, "sk-ant-admin") && !strings.HasPrefix(apiKey, "sk-ant-api01") {
 		resp.Diagnostics.AddAttributeWarning(
 			path.Root("api_key"),
 			"Non-Standard Admin API Key Prefix",
-			"Anthropic Organization Admin API keys typically begin with 'sk-ant-admin'. Standard workspace API keys will be rejected by /v1/organizations/* endpoints.",
+			"Admin API keys begin with 'sk-ant-admin01-' (Claude Console) or 'sk-ant-api01-' (Claude Enterprise). Other keys are rejected by /v1/organizations/* endpoints.",
 		)
 	}
 
