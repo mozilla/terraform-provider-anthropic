@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.1](https://github.com/mozilla/terraform-provider-anthropic/compare/v0.2.0...v0.2.1) (2026-11-13)
+
+
+### Bug Fixes
+
+* accept Claude Enterprise admin keys without a prefix warning ([#13](https://github.com/mozilla/terraform-provider-anthropic/issues/13)) ([de459dc](https://github.com/mozilla/terraform-provider-anthropic/commit/de459dc06325b8fb9969b4ca97bb7d7fee8c63e1))
+
 ## [0.2.0](https://github.com/mozilla/terraform-provider-anthropic/compare/v0.1.0...v0.2.0) (2026-11-13)
 
 
