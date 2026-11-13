@@ -149,16 +149,30 @@ type ActorRef struct {
 	Type string `json:"type"`
 }
 
+// APIKeyScope is where an API key can be used: one workspace, or every workspace (type "organization").
+type APIKeyScope struct {
+	Type        string  `json:"type"`
+	WorkspaceID *string `json:"workspace_id"`
+}
+
 // APIKey represents an organization API key from /v1/organizations/api_keys.
 type APIKey struct {
-	ID             string    `json:"id"`
-	Name           string    `json:"name"`
-	Status         string    `json:"status"`
-	PartialKeyHint string    `json:"partial_key_hint"`
-	WorkspaceID    *string   `json:"workspace_id"`
-	CreatedAt      string    `json:"created_at"`
-	CreatedBy      *ActorRef `json:"created_by"`
-	Type           string    `json:"type"`
+	ID             string       `json:"id"`
+	Name           string       `json:"name"`
+	Status         string       `json:"status"`
+	PartialKeyHint string       `json:"partial_key_hint"`
+	Scope          *APIKeyScope `json:"scope"`
+	CreatedAt      string       `json:"created_at"`
+	CreatedBy      *ActorRef    `json:"created_by"`
+	Type           string       `json:"type"`
+}
+
+// ScopeWorkspaceID returns the workspace the key is bound to, or "" for a key scoped to every workspace.
+func (k *APIKey) ScopeWorkspaceID() string {
+	if k.Scope == nil || k.Scope.WorkspaceID == nil {
+		return ""
+	}
+	return *k.Scope.WorkspaceID
 }
 
 // UpdateAPIKeyRequest is the request body for POST /v1/organizations/api_keys/{api_key_id}.
@@ -192,13 +206,13 @@ func (g *RBACGroup) EffectiveRoleIDs() ([]string, bool) {
 	return nil, true
 }
 
-// CreateRBACGroupRequest is the request body for POST /v1/organizations/rbac_groups?beta=true.
+// CreateRBACGroupRequest is the request body for POST /v1/organizations/rbac_groups.
 // Only "name" is accepted by the REST API; role_ids are read-only via the API.
 type CreateRBACGroupRequest struct {
 	Name string `json:"name"`
 }
 
-// UpdateRBACGroupRequest is the request body for POST /v1/organizations/rbac_groups/{id}?beta=true.
+// UpdateRBACGroupRequest is the request body for POST /v1/organizations/rbac_groups/{id}.
 // Only "name" is accepted by the REST API; role_ids are read-only via the API.
 type UpdateRBACGroupRequest struct {
 	Name string `json:"name"`
@@ -235,7 +249,7 @@ type AddRBACGroupMemberRequest struct {
 // RBACRole represents a Claude Enterprise role from GET /v1/organizations/rbac_roles.
 type RBACRole struct {
 	ID          string  `json:"id"`
-	Name        string  `json:"name"`
+	DisplayName string  `json:"display_name"`
 	Description *string `json:"description"`
 	CreatedAt   string  `json:"created_at"`
 	UpdatedAt   string  `json:"updated_at"`

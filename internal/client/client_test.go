@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -87,19 +88,19 @@ func TestDualCursorPaginationAndCycleGuard(t *testing.T) {
 	var pageCalls int32
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		atomic.AddInt32(&pageCalls, 1)
-		if r.Header.Get("anthropic-beta") != BetaCEUserManagement {
-			t.Errorf("missing anthropic-beta header, got %q", r.Header.Get("anthropic-beta"))
+		if got := r.Header.Get("anthropic-beta"); got != "" {
+			t.Errorf("unexpected anthropic-beta header %q", got)
 		}
-		if r.URL.Query().Get("beta") != "true" {
-			t.Errorf("missing beta=true query param, got %q", r.URL.RawQuery)
+		if r.URL.Query().Has("beta") {
+			t.Errorf("unexpected beta query param in %q", r.URL.RawQuery)
 		}
 
 		w.Header().Set("Content-Type", "application/json")
 		switch r.URL.Query().Get("page") {
 		case "":
-			_, _ = w.Write([]byte(`{"data":[{"id":"rbac_role_1","name":"Role 1"}],"has_more":true,"next_page":"tok_2"}`))
+			_, _ = w.Write([]byte(`{"data":[{"id":"rbac_role_1","display_name":"Role 1"}],"has_more":true,"next_page":"tok_2"}`))
 		case "tok_2":
-			_, _ = w.Write([]byte(`{"data":[{"id":"rbac_role_2","name":"Role 2"}],"has_more":false,"next_page":null}`))
+			_, _ = w.Write([]byte(`{"data":[{"id":"rbac_role_2","display_name":"Role 2"}],"has_more":false,"next_page":null}`))
 		default:
 			t.Fatalf("unexpected page token %q", r.URL.Query().Get("page"))
 		}
@@ -405,5 +406,146 @@ func TestBaseURLRequiresHTTPS(t *testing.T) {
 		if (err == nil) != ok {
 			t.Errorf("base_url %q: got err=%v, want accepted=%v", url, err, ok)
 		}
+	}
+}
+
+// The provider resolves its own credential, so credentials in the environment must never be sent.
+func TestOneCredentialHeaderPerAuthMode(t *testing.T) {
+	t.Setenv("ANTHROPIC_API_KEY", "env-api-key")
+	t.Setenv("ANTHROPIC_AUTH_TOKEN", "env-auth-token")
+	t.Setenv("ANTHROPIC_PROFILE", "env-profile")
+	t.Setenv("ANTHROPIC_CONFIG_DIR", t.TempDir())
+
+	cases := []struct {
+		name       string
+		cfg        Config
+		wantAPIKey string
+		wantAuth   string
+	}{
+		{"api_key", Config{APIKey: "sk-ant-admin-test"}, "sk-ant-admin-test", ""},
+		{"oauth_token", Config{OAuthToken: "oauth-test"}, "", "Bearer oauth-test"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if got := r.Header.Get("X-Api-Key"); got != tc.wantAPIKey {
+					t.Errorf("X-Api-Key = %q, want %q", got, tc.wantAPIKey)
+				}
+				if got := r.Header.Get("Authorization"); got != tc.wantAuth {
+					t.Errorf("Authorization = %q, want %q", got, tc.wantAuth)
+				}
+				if got := r.Header.Get("anthropic-version"); got != DefaultAnthropicVersion {
+					t.Errorf("anthropic-version = %q, want %q", got, DefaultAnthropicVersion)
+				}
+				w.Header().Set("Content-Type", "application/json")
+				_, _ = w.Write([]byte(`{"id":"org_01","name":"Example","type":"organization"}`))
+			}))
+			defer srv.Close()
+
+			tc.cfg.BaseURL = srv.URL
+			c, err := New(tc.cfg)
+			if err != nil {
+				t.Fatalf("New: %v", err)
+			}
+			if _, err := c.GetOrganization(context.Background()); err != nil {
+				t.Fatalf("GetOrganization: %v", err)
+			}
+		})
+	}
+}
+
+func TestAPIKeyScopeWorkspaceID(t *testing.T) {
+	t.Parallel()
+	cases := map[string]string{
+		`{"id":"k1","scope":{"type":"organization"}}`:                              "",
+		`{"id":"k2","scope":{"type":"workspace","workspace_id":"wrkspc_default"}}`: "wrkspc_default",
+		`{"id":"k3"}`: "",
+	}
+	for body, want := range cases {
+		var k APIKey
+		if err := json.Unmarshal([]byte(body), &k); err != nil {
+			t.Fatalf("unmarshal %s: %v", body, err)
+		}
+		if got := k.ScopeWorkspaceID(); got != want {
+			t.Errorf("%s: ScopeWorkspaceID() = %q, want %q", body, got, want)
+		}
+	}
+}
+
+func TestRedirectIsNotFollowed(t *testing.T) {
+	t.Parallel()
+	var otherHit int32
+	other := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt32(&otherHit, 1)
+	}))
+	defer other.Close()
+	// localhost and 127.0.0.1 are different hosts to net/http, so Go would keep X-Api-Key but drop Authorization.
+	target := strings.Replace(other.URL, "127.0.0.1", "localhost", 1)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, target+r.URL.Path, http.StatusTemporaryRedirect)
+	}))
+	defer srv.Close()
+
+	c, err := New(Config{APIKey: "sk-ant-admin-test", BaseURL: srv.URL, MaxRetries: 0})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	_, err = c.GetOrganization(context.Background())
+	if StatusCode(err) != http.StatusTemporaryRedirect {
+		t.Fatalf("expected the 307 as an error, got %v", err)
+	}
+	if n := atomic.LoadInt32(&otherHit); n != 0 {
+		t.Fatalf("redirect was followed %d times", n)
+	}
+}
+
+func TestNonJSONErrorBodyIsNotShown(t *testing.T) {
+	t.Parallel()
+	err := ParseAPIError(http.StatusUnauthorized, nil, []byte("proxy echo: X-Api-Key: sk-ant-admin-test"))
+	if strings.Contains(err.Error(), "sk-ant-admin-test") {
+		t.Fatalf("error text includes the response body: %q", err.Error())
+	}
+	jsonErr := ParseAPIError(http.StatusNotFound, nil, []byte(`{"type":"error","error":{"type":"not_found_error","message":"workspace not found"}}`))
+	if !strings.Contains(jsonErr.Error(), "workspace not found") {
+		t.Fatalf("API error message missing: %q", jsonErr.Error())
+	}
+}
+
+func TestRejectedTokenExchangeIsNotRetried(t *testing.T) {
+	t.Parallel()
+	var exchanges, apiCalls int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/v1/oauth/token" {
+			atomic.AddInt32(&exchanges, 1)
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusUnauthorized)
+			_, _ = w.Write([]byte(`{"error":"invalid_grant"}`))
+			return
+		}
+		atomic.AddInt32(&apiCalls, 1)
+	}))
+	defer srv.Close()
+
+	c, err := New(Config{
+		BaseURL:     srv.URL,
+		MaxRetries:  3,
+		BaseBackoff: time.Millisecond,
+		Federation: &FederationConfig{
+			FederationRuleID: "fdrl_01",
+			OrganizationID:   "org_01",
+			IdentityToken:    "oidc-jwt",
+		},
+	})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	if _, err := c.GetOrganization(context.Background()); err == nil {
+		t.Fatal("expected an error from the rejected exchange")
+	}
+	if n := atomic.LoadInt32(&exchanges); n != 1 {
+		t.Fatalf("token exchange sent %d times, want 1", n)
+	}
+	if n := atomic.LoadInt32(&apiCalls); n != 0 {
+		t.Fatalf("API called %d times without a token", n)
 	}
 }

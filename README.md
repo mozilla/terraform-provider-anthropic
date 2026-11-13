@@ -7,7 +7,9 @@ Resource and data source reference is in [docs/](docs/). Examples are in [exampl
 ## Requirements
 
 - OpenTofu or Terraform. Tested with OpenTofu 1.12.
-- Go 1.25.8 or later to build from source.
+- Go 1.26 or later to build from source.
+
+The provider uses Anthropic API version `2026-10-21` through the Go SDK v2.
 
 ## Authentication
 
@@ -16,10 +18,12 @@ The provider takes one of three credentials.
 | Credential | Provider setting | Environment variable | Covers |
 |---|---|---|---|
 | Admin API key (`sk-ant-admin...`) | `api_key` | `ANTHROPIC_ADMIN_API_KEY` | Console and Enterprise resources. The API rejects admin keys on service account and federation endpoints. |
-| OAuth token with `org:admin` scope | `oauth_token` | `ANTHROPIC_OAUTH_TOKEN` or `ANTHROPIC_AUTH_TOKEN` | All resources |
+| OAuth token with `org:admin` scope | `oauth_token` | `ANTHROPIC_OAUTH_TOKEN` | All resources |
 | WIF token exchange | `federation` | See below | All resources, when the rule grants `org:admin` |
 
 WIF needs no stored secret, so use it in CI.
+
+Settings in the provider block take precedence over the environment. With no credential in the block, the provider reads `ANTHROPIC_FEDERATION_RULE_ID` and the other federation variables first, then `ANTHROPIC_OAUTH_TOKEN`, then `ANTHROPIC_ADMIN_API_KEY`. A federation field left out of the block is read from its environment variable. The provider does not read `ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN`, `ANTHROPIC_BASE_URL`, `ANTHROPIC_PROFILE` or Anthropic CLI profiles, because Claude Code, LLM gateways and other tools set them.
 
 ```hcl
 provider "anthropic" {
@@ -50,7 +54,7 @@ Every other issuer, service account and rule can then be managed in code.
 
 ## What it manages
 
-"Live" means tested against a real Anthropic organization. Everything else is covered by unit tests against a mock API only. Enterprise resources have not been tested live yet.
+"Live" means tested against a real Anthropic organization. Everything else is covered by unit tests against a mock API only.
 
 | Area | Capability | Supported | Live | Notes |
 |---|---|---|---|---|
@@ -72,6 +76,19 @@ Every other issuer, service account and rule can then be managed in code.
 | WIF | Federation rules with `org:admin` | No | | Needs a Console session. See [Bootstrapping WIF](#bootstrapping-wif). |
 
 Data sources cover the organization, users, invites, workspaces, workspace members, API keys, groups, roles, service accounts, federation issuers and federation rules. See [docs/](docs/) for attributes.
+
+## Security
+
+* Requests go only to `base_url`, which defaults to `https://api.anthropic.com` and must use `https`. Plain `http` is allowed only on a loopback host for local testing.
+* Redirects are not followed. Go keeps the `X-Api-Key` header on a redirect to another host, so following one could send the admin key there.
+* An error response that is not an Anthropic API error is shown only as its HTTP status and request ID, because a proxy can echo the request, credentials included, into the body.
+
+## Upgrading to 0.2.0
+
+0.2.0 moves to API version `2026-10-21`. Two changes can affect existing configurations:
+
+* `workspace_id` on `anthropic_api_key` and the API key data sources now holds the Default workspace's ID for a key bound to that workspace. It was `null` before. It stays `null` for a key that can be used in every workspace. The attribute is read-only, so the next plan reports it as changed outside Terraform rather than as a planned change.
+* `ANTHROPIC_AUTH_TOKEN` is no longer read. Set `ANTHROPIC_OAUTH_TOKEN` instead.
 
 ## Development
 

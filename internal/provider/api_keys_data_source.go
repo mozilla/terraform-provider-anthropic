@@ -84,7 +84,7 @@ func (d *APIKeysDataSource) Schema(_ context.Context, _ datasource.SchemaRequest
 						},
 						"workspace_id": schema.StringAttribute{
 							Computed:            true,
-							MarkdownDescription: "Workspace ID the API key belongs to, or `null` for the default workspace.",
+							MarkdownDescription: "ID of the workspace the API key is bound to, including the Default workspace. `null` for a key that can be used in every workspace.",
 						},
 						"created_at": schema.StringAttribute{
 							Computed:            true,

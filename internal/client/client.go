@@ -20,22 +20,21 @@ import (
 	"sync"
 	"time"
 
-	"github.com/anthropics/anthropic-sdk-go"
-	"github.com/anthropics/anthropic-sdk-go/option"
+	"github.com/anthropics/anthropic-sdk-go/v2"
+	"github.com/anthropics/anthropic-sdk-go/v2/option"
 )
 
 const (
 	DefaultBaseURL          = "https://api.anthropic.com"
 	MaxRetryAfter           = 60 * time.Second
-	DefaultAnthropicVersion = "2023-06-01"
+	DefaultAnthropicVersion = "2026-10-21"
 	DefaultMaxRetries       = 4
 	DefaultTimeout          = 60 * time.Second
 	DefaultBaseBackoff      = 250 * time.Millisecond
 	DefaultMemberCacheTTL   = 5 * time.Second
 	MaxResponseBodyBytes    = 4 << 20 // 4 MiB
 
-	BetaCEUserManagement = "ce-user-management-2026-07-13"
-	BetaSpendLimitReads  = "spend-limit-reads-2026-09-26"
+	BetaSpendLimitReads = "spend-limit-reads-2026-09-26"
 )
 
 // AuthMode identifies how the Anthropic client authenticates requests.
@@ -48,7 +47,7 @@ const (
 )
 
 // FederationConfig configures Workload Identity Federation (WIF) token exchange
-// via github.com/anthropics/anthropic-sdk-go/option.WithFederationTokenProvider.
+// via github.com/anthropics/anthropic-sdk-go/v2/option.WithFederationTokenProvider.
 type FederationConfig struct {
 	FederationRuleID  string
 	OrganizationID    string
@@ -85,7 +84,7 @@ type inflightMemberCall struct {
 }
 
 // Client is a thread-safe client for the Anthropic Admin API (Console, Enterprise, and WIF),
-// backed by the official Anthropic Go SDK (github.com/anthropics/anthropic-sdk-go).
+// backed by the official Anthropic Go SDK (github.com/anthropics/anthropic-sdk-go/v2).
 type Client struct {
 	sdk              anthropic.Client
 	authMode         AuthMode
@@ -158,11 +157,15 @@ func New(cfg Config) (*Client, error) {
 		memberCacheTTL = DefaultMemberCacheTTL
 	}
 
-	httpClient := cfg.HTTPClient
-	if httpClient == nil {
-		httpClient = &http.Client{
-			Timeout: DefaultTimeout,
-		}
+	httpClient := &http.Client{Timeout: DefaultTimeout}
+	if cfg.HTTPClient != nil {
+		copied := *cfg.HTTPClient
+		httpClient = &copied
+	}
+	// Go keeps custom headers such as X-Api-Key on a redirect to another host.
+	// The Admin API does not redirect, so a 3xx is returned as an error instead.
+	httpClient.CheckRedirect = func(*http.Request, []*http.Request) error {
+		return http.ErrUseLastResponse
 	}
 
 	userAgent := strings.TrimSpace(cfg.UserAgent)
@@ -170,7 +173,10 @@ func New(cfg Config) (*Client, error) {
 		userAgent = "terraform-provider-anthropic"
 	}
 
+	// The provider resolves its own credential, so the SDK must not add one from
+	// ANTHROPIC_API_KEY, ANTHROPIC_AUTH_TOKEN, ANTHROPIC_PROFILE or a profile on disk.
 	sdkOpts := []option.RequestOption{
+		option.WithoutEnvironmentDefaults(),
 		option.WithBaseURL(baseURL),
 		option.WithHTTPClient(httpClient),
 		option.WithMaxRetries(0), // Managed by Client.Do for Retry-After + 529 + configurable backoff
@@ -183,16 +189,12 @@ func New(cfg Config) (*Client, error) {
 	switch {
 	case apiKey != "":
 		authMode = AuthModeAPIKey
-		sdkOpts = append(sdkOpts,
-			option.WithAPIKey(apiKey),
-			option.WithHeaderDel("Authorization"),
-		)
+		// SDK v2 sends option.WithAPIKey as Authorization: Bearer. Keep the admin key in
+		// X-Api-Key, the header v1 sent, so the wire format does not change.
+		sdkOpts = append(sdkOpts, option.WithHeader("X-Api-Key", apiKey))
 	case oauthToken != "":
 		authMode = AuthModeOAuth
-		sdkOpts = append(sdkOpts,
-			option.WithAuthToken(oauthToken),
-			option.WithHeaderDel("x-api-key"),
-		)
+		sdkOpts = append(sdkOpts, option.WithAuthToken(oauthToken))
 	case hasFederation:
 		authMode = AuthModeFederation
 		fed := cfg.Federation
@@ -230,7 +232,6 @@ func New(cfg Config) (*Client, error) {
 				ServiceAccountID: strings.TrimSpace(fed.ServiceAccountID),
 				WorkspaceID:      strings.TrimSpace(fed.WorkspaceID),
 			}),
-			option.WithHeaderDel("x-api-key"),
 		)
 	}
 
@@ -325,13 +326,10 @@ func WithQuery(q url.Values) RequestOption {
 	}
 }
 
-// WithBeta attaches an anthropic-beta header (if non-empty) and sets the ?beta=true query parameter.
+// WithBeta attaches an anthropic-beta header for an endpoint that is still in beta.
 func WithBeta(betaHeader string) RequestOption {
 	return func(rc *requestConfig) {
-		if betaHeader != "" {
-			rc.headers.Add("anthropic-beta", betaHeader)
-		}
-		rc.query.Set("beta", "true")
+		rc.headers.Add("anthropic-beta", betaHeader)
 	}
 }
 
@@ -377,8 +375,10 @@ func (c *Client) Do(ctx context.Context, method, path string, reqBody, respBody 
 		var capturedStatus int
 		var capturedHeaders http.Header
 		var capturedBody []byte
+		var reachedTransport bool
 
 		captureMiddleware := func(req *http.Request, next option.MiddlewareNext) (*http.Response, error) {
+			reachedTransport = true
 			resp, err := next(req)
 			if err != nil || resp == nil {
 				return resp, err
@@ -411,7 +411,9 @@ func (c *Client) Do(ctx context.Context, method, path string, reqBody, respBody 
 
 		if capturedStatus == 0 && err != nil {
 			lastErr = fmt.Errorf("HTTP request failed: %w", err)
-			if method != http.MethodPost && attempt < c.maxRetries && ctx.Err() == nil {
+			// A failure before the request reached the transport, such as a rejected
+			// federation token exchange, fails the same way on every attempt.
+			if reachedTransport && method != http.MethodPost && attempt < c.maxRetries && ctx.Err() == nil {
 				if sleepErr := c.sleepBackoff(ctx, attempt, nil); sleepErr != nil {
 					return lastErr
 				}
@@ -801,7 +803,7 @@ func (c *Client) CreateRBACGroup(ctx context.Context, req CreateRBACGroupRequest
 		return nil, err
 	}
 	var g RBACGroup
-	if err := c.Do(ctx, http.MethodPost, p, req, &g, WithBeta(BetaCEUserManagement)); err != nil {
+	if err := c.Do(ctx, http.MethodPost, p, req, &g); err != nil {
 		return nil, err
 	}
 	if _, degraded := g.EffectiveRoleIDs(); degraded && g.ID != "" {
@@ -819,7 +821,7 @@ func (c *Client) GetRBACGroup(ctx context.Context, groupID string) (*RBACGroup, 
 		return nil, err
 	}
 	var g RBACGroup
-	if err := c.Do(ctx, http.MethodGet, p, nil, &g, WithBeta(BetaCEUserManagement)); err != nil {
+	if err := c.Do(ctx, http.MethodGet, p, nil, &g); err != nil {
 		return nil, err
 	}
 	return &g, nil
@@ -831,17 +833,17 @@ func (c *Client) ListRBACGroups(ctx context.Context) ([]RBACGroup, error) {
 	if err != nil {
 		return nil, err
 	}
-	return ListAll[RBACGroup](ctx, c, p, nil, WithBeta(BetaCEUserManagement))
+	return ListAll[RBACGroup](ctx, c, p, nil)
 }
 
-// UpdateRBACGroup renames a custom RBAC group (POST /v1/organizations/rbac_groups/{id}?beta=true).
+// UpdateRBACGroup renames a custom RBAC group (POST /v1/organizations/rbac_groups/{id}).
 func (c *Client) UpdateRBACGroup(ctx context.Context, groupID string, req UpdateRBACGroupRequest) (*RBACGroup, error) {
 	p, err := Path("rbac_groups", groupID)
 	if err != nil {
 		return nil, err
 	}
 	var g RBACGroup
-	if err := c.Do(ctx, http.MethodPost, p, req, &g, WithBeta(BetaCEUserManagement)); err != nil {
+	if err := c.Do(ctx, http.MethodPost, p, req, &g); err != nil {
 		return nil, err
 	}
 	if _, degraded := g.EffectiveRoleIDs(); degraded && g.ID != "" {
@@ -858,7 +860,7 @@ func (c *Client) DeleteRBACGroup(ctx context.Context, groupID string) error {
 	if err != nil {
 		return err
 	}
-	err = c.Do(ctx, http.MethodDelete, p, nil, nil, WithBeta(BetaCEUserManagement))
+	err = c.Do(ctx, http.MethodDelete, p, nil, nil)
 	c.InvalidateRBACGroupMemberCache(groupID)
 	return err
 }
@@ -870,7 +872,7 @@ func (c *Client) AddRBACGroupMember(ctx context.Context, groupID, userID string)
 		return nil, err
 	}
 	var m RBACGroupMember
-	if err := c.Do(ctx, http.MethodPost, p, AddRBACGroupMemberRequest{UserID: userID}, &m, WithBeta(BetaCEUserManagement)); err != nil {
+	if err := c.Do(ctx, http.MethodPost, p, AddRBACGroupMemberRequest{UserID: userID}, &m); err != nil {
 		return nil, err
 	}
 	c.InvalidateRBACGroupMemberCache(groupID)
@@ -883,7 +885,7 @@ func (c *Client) RemoveRBACGroupMember(ctx context.Context, groupID, userID stri
 	if err != nil {
 		return err
 	}
-	err = c.Do(ctx, http.MethodDelete, p, nil, nil, WithBeta(BetaCEUserManagement))
+	err = c.Do(ctx, http.MethodDelete, p, nil, nil)
 	c.InvalidateRBACGroupMemberCache(groupID)
 	return err
 }
@@ -930,7 +932,7 @@ func (c *Client) ListRBACGroupMembers(ctx context.Context, groupID string) ([]RB
 	c.memberInflight[groupID] = call
 	c.memberCacheMu.Unlock()
 
-	members, fetchErr := ListAll[RBACGroupMember](ctx, c, p, nil, WithBeta(BetaCEUserManagement))
+	members, fetchErr := ListAll[RBACGroupMember](ctx, c, p, nil)
 
 	c.memberCacheMu.Lock()
 	call.members = members
@@ -978,7 +980,7 @@ func (c *Client) ListRBACRoles(ctx context.Context) ([]RBACRole, error) {
 	if err != nil {
 		return nil, err
 	}
-	return ListAll[RBACRole](ctx, c, p, nil, WithBeta(BetaCEUserManagement))
+	return ListAll[RBACRole](ctx, c, p, nil)
 }
 
 // ============================================================================

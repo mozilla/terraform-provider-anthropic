@@ -108,7 +108,7 @@ func (d *RBACRolesDataSource) Read(ctx context.Context, _ datasource.ReadRequest
 	for _, role := range roles {
 		item := RBACRoleModel{
 			ID:        types.StringValue(role.ID),
-			Name:      types.StringValue(role.Name),
+			Name:      types.StringValue(role.DisplayName),
 			CreatedAt: types.StringValue(role.CreatedAt),
 			UpdatedAt: types.StringValue(role.UpdatedAt),
 		}

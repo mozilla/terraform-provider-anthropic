@@ -67,7 +67,7 @@ func (p *AnthropicProvider) Schema(_ context.Context, _ provider.SchemaRequest, 
 			"(Workspaces, Workspace Members, Users, Invites, API Keys), **Claude Enterprise** " +
 			"(RBAC Groups, RBAC Group Members, RBAC Roles, Per-User Spend Limits), and " +
 			"**Workload Identity Federation (WIF)** (Service Accounts, Federation Issuers, Federation Rules) " +
-			"using the official Anthropic Go SDK (`github.com/anthropics/anthropic-sdk-go`).",
+			"using the official Anthropic Go SDK (`github.com/anthropics/anthropic-sdk-go/v2`).",
 		Attributes: map[string]schema.Attribute{
 			"api_key": schema.StringAttribute{
 				Optional:  true,
@@ -80,7 +80,7 @@ func (p *AnthropicProvider) Schema(_ context.Context, _ provider.SchemaRequest, 
 				Optional:  true,
 				Sensitive: true,
 				MarkdownDescription: "Anthropic OAuth access token (`sk-ant-oat01-...`) with `org:admin` scope. " +
-					"Defaults to `ANTHROPIC_OAUTH_TOKEN` (or `ANTHROPIC_AUTH_TOKEN`). Required when managing Service Accounts or Federation resources without WIF.",
+					"Defaults to `ANTHROPIC_OAUTH_TOKEN`. `ANTHROPIC_AUTH_TOKEN` is not read, because other tools such as Claude Code and LLM gateways set it. Required when managing Service Accounts or Federation resources without WIF.",
 			},
 			"federation": schema.SingleNestedAttribute{
 				Optional: true,
@@ -212,7 +212,7 @@ func (p *AnthropicProvider) Configure(ctx context.Context, req provider.Configur
 	if apiKey == "" && oauthToken == "" && fedCfg == nil {
 		if envRuleID := strings.TrimSpace(os.Getenv("ANTHROPIC_FEDERATION_RULE_ID")); envRuleID != "" {
 			fedCfg = resolveFederationConfig(nil)
-		} else if envOAuth := firstNonEmptyEnv("ANTHROPIC_OAUTH_TOKEN", "ANTHROPIC_AUTH_TOKEN"); envOAuth != "" {
+		} else if envOAuth := strings.TrimSpace(os.Getenv("ANTHROPIC_OAUTH_TOKEN")); envOAuth != "" {
 			oauthToken = envOAuth
 		} else if envKey := strings.TrimSpace(os.Getenv("ANTHROPIC_ADMIN_API_KEY")); envKey != "" {
 			apiKey = envKey
@@ -289,15 +289,6 @@ func resolveFederationConfig(m *FederationProviderModel) *client.FederationConfi
 		}
 	}
 	return fc
-}
-
-func firstNonEmptyEnv(keys ...string) string {
-	for _, k := range keys {
-		if v := strings.TrimSpace(os.Getenv(k)); v != "" {
-			return v
-		}
-	}
-	return ""
 }
 
 func (p *AnthropicProvider) Resources(_ context.Context) []func() resource.Resource {
