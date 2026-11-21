@@ -46,4 +46,4 @@ Optional:
 - `audience` (String) Exact match against the JWT `aud` claim.
 - `claims` (Map of String) Exact-match `{claim: value}` pairs against top-level string claims.
 - `condition` (String) Common Expression Language (CEL) expression evaluated over `claims` (up to 4096 characters).
-- `subject_prefix` (String) Matches the JWT `sub` claim (exact match unless ending in `:*` or `/*` for prefix wildcard, e.g. `repo:example-org/example-repo:*`).
+- `subject_prefix` (String) Matches the JWT `sub` claim (exact match unless ending in a single trailing `*`, which makes it a prefix match, e.g. `repo:example-org/example-repo:*` or `arn:aws:iam::123456789012:role/aws-reserved/sso.amazonaws.com/AWSReservedSSO_developer-*`).

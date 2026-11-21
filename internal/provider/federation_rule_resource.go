@@ -151,7 +151,7 @@ func (r *FederationRuleResource) Schema(_ context.Context, _ resource.SchemaRequ
 					},
 					"subject_prefix": schema.StringAttribute{
 						Optional:            true,
-						MarkdownDescription: "Matches the JWT `sub` claim (exact match unless ending in `:*` or `/*` for prefix wildcard, e.g. `repo:example-org/example-repo:*`).",
+						MarkdownDescription: "Matches the JWT `sub` claim (exact match unless ending in a single trailing `*`, which makes it a prefix match, e.g. `repo:example-org/example-repo:*` or `arn:aws:iam::123456789012:role/aws-reserved/sso.amazonaws.com/AWSReservedSSO_developer-*`).",
 						Validators: []validator.String{
 							subjectPrefixValidator(),
 						},

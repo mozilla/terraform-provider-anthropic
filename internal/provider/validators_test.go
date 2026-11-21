@@ -20,3 +20,29 @@ func TestHTTPSURLPattern(t *testing.T) {
 		}
 	}
 }
+
+func TestValidateSubjectPrefix(t *testing.T) {
+	for v, ok := range map[string]bool{
+		// Exact matches.
+		"repo:example-org/app:ref:refs/heads/main": true,
+		"system:serviceaccount:prod:worker":        true,
+		// Trailing wildcard after a delimiter.
+		"repo:example-org/app:*": true,
+		"repo:example-org/*":     true,
+		// Trailing wildcard after any other character, a prefix match per the API.
+		"arn:aws:iam::123456789012:role/aws-reserved/sso.amazonaws.com/AWSReservedSSO_developer-*": true,
+		"repo:moz*": true,
+		// Rejected.
+		"":         false,
+		"   ":      false,
+		"*":        false,
+		"a*b":      false,
+		"a**":      false,
+		"*a":       false,
+		"repo:*:*": false,
+	} {
+		if err := ValidateSubjectPrefix(v); (err == nil) != ok {
+			t.Errorf("%q: got err=%v, want ok=%v", v, err, ok)
+		}
+	}
+}

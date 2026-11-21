@@ -1408,7 +1408,7 @@ resource "anthropic_service_account" "ci" {
 `,
 				ExpectError: regexp.MustCompile(`static\s+Admin\s+API\s+keys\s+\(x-api-key\)\s+are\s+rejected`),
 			},
-			// Step 2: Reject unsafe wildcard in match.subject_prefix (e.g. "repo:moz*")
+			// Step 2: Reject a wildcard that is not the trailing character in match.subject_prefix (e.g. "repo:*moz")
 			{
 				Config: mock.wifProviderConfig() + `
 resource "anthropic_federation_rule" "unsafe_wildcard" {
@@ -1417,7 +1417,7 @@ resource "anthropic_federation_rule" "unsafe_wildcard" {
   service_account_id = "svac_01"
   oauth_scope        = "workspace:developer"
   match = {
-    subject_prefix = "repo:moz*"
+    subject_prefix = "repo:*moz"
   }
 }
 `,

@@ -69,12 +69,15 @@ func federationOAuthScopeValidator() validator.String {
 	)
 }
 
-// ValidateSubjectPrefix enforces Anthropic WIF subject_prefix safety rules:
+// ValidateSubjectPrefix enforces the subject_prefix rules the Anthropic API documents: the value
+// is an exact match unless it ends with "*", in which case it is a prefix match, and a
+// wildcard-only value is not accepted as a matcher.
 //   - Rejects empty or whitespace-only values.
 //   - Rejects a bare "*" wildcard.
-//   - If "*" is present, it must appear only once as the final character and must
-//     immediately follow a segment separator (":" or "/"), e.g. "repo:example/app:*"
-//     or "repo:example/*". Partial token wildcards such as "repo:moz*" are rejected.
+//   - If "*" is present, it must appear only once, as the final character.
+//
+// The wildcard may follow any character, e.g. "repo:example/app:*" or "AWSReservedSSO_admin-*",
+// the API does not require a ":" or "/" delimiter before it.
 func ValidateSubjectPrefix(v string) error {
 	if strings.TrimSpace(v) == "" {
 		return fmt.Errorf("subject_prefix must not be empty")
@@ -82,13 +85,8 @@ func ValidateSubjectPrefix(v string) error {
 	if v == "*" {
 		return fmt.Errorf("subject_prefix cannot be a bare wildcard \"*\"")
 	}
-	if strings.Contains(v, "*") {
-		if strings.Count(v, "*") > 1 || !strings.HasSuffix(v, "*") {
-			return fmt.Errorf("wildcard \"*\" in subject_prefix is only permitted as the trailing character")
-		}
-		if len(v) <= 2 || (!strings.HasSuffix(v, ":*") && !strings.HasSuffix(v, "/*")) {
-			return fmt.Errorf("wildcard \"*\" in subject_prefix must immediately follow a \":\" or \"/\" delimiter (e.g. \"repo:example-org/app:*\" or \"repo:example-org/*\"), got %q", v)
-		}
+	if strings.Contains(v, "*") && (strings.Count(v, "*") > 1 || !strings.HasSuffix(v, "*")) {
+		return fmt.Errorf("wildcard \"*\" in subject_prefix is only permitted as the trailing character")
 	}
 	return nil
 }
@@ -96,7 +94,7 @@ func ValidateSubjectPrefix(v string) error {
 type subjectPrefixStringValidator struct{}
 
 func (v subjectPrefixStringValidator) Description(_ context.Context) string {
-	return "must be a non-empty subject match or a delimiter-bounded prefix wildcard ending in ':*' or '/*'"
+	return "must be a non-empty subject match, optionally ending in a single trailing '*' for a prefix match"
 }
 
 func (v subjectPrefixStringValidator) MarkdownDescription(ctx context.Context) string {
