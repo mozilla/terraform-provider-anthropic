@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.2](https://github.com/mozilla/terraform-provider-anthropic/compare/v0.2.1...v0.2.2) (2026-11-21)
+
+
+### Bug Fixes
+
+* accept a trailing wildcard in subject_prefix after any character ([#15](https://github.com/mozilla/terraform-provider-anthropic/issues/15)) ([485a4f8](https://github.com/mozilla/terraform-provider-anthropic/commit/485a4f8dea4cdafa88e045f967dea9493bcc50bf))
+
 ## [0.2.1](https://github.com/mozilla/terraform-provider-anthropic/compare/v0.2.0...v0.2.1) (2026-11-13)
 
 
