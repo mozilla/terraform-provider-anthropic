@@ -38,5 +38,6 @@ Read-Only:
 
 - `ca_cert_pem` (String) Custom CA certificate PEM bundle, or `null`.
 - `discovery_base` (String) Override base URL for OIDC discovery, or `null`.
-- `type` (String) JWKS resolution strategy (`discovery` or `explicit_url`).
+- `keys` (String) JSON-encoded inline JWK objects when `type` is `inline`, or `null`.
+- `type` (String) JWKS resolution strategy (`discovery`, `explicit_url`, or `inline`).
 - `url` (String) Explicit JWKS endpoint URL, or `null`.

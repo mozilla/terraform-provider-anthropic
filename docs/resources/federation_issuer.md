@@ -39,10 +39,11 @@ Manages an OpenID Connect (OIDC) federation issuer (`/v1/organizations/federatio
 
 Required:
 
-- `type` (String) JWKS resolution strategy (`discovery` or `explicit_url`).
+- `type` (String) JWKS resolution strategy (`discovery`, `explicit_url`, or `inline`).
 
 Optional:
 
 - `ca_cert_pem` (String) Optional custom CA certificate PEM bundle for TLS verification.
 - `discovery_base` (String) Optional override base URL for OIDC `.well-known/openid-configuration` discovery.
+- `keys` (String) JSON-encoded array of JWK objects when `type = "inline"`, e.g. `jsonencode(jsondecode(data.http.jwks.response_body).keys)`. Anthropic makes no outbound fetch and does not refresh inline keys, so update them when the provider rotates its signing keys.
 - `url` (String) Explicit JWKS endpoint URL when `type = "explicit_url"`.

@@ -64,7 +64,7 @@ func (d *FederationIssuerDataSource) Schema(_ context.Context, _ datasource.Sche
 				Attributes: map[string]schema.Attribute{
 					"type": schema.StringAttribute{
 						Computed:            true,
-						MarkdownDescription: "JWKS resolution strategy (`discovery` or `explicit_url`).",
+						MarkdownDescription: "JWKS resolution strategy (`discovery`, `explicit_url`, or `inline`).",
 					},
 					"discovery_base": schema.StringAttribute{
 						Computed:            true,
@@ -77,6 +77,10 @@ func (d *FederationIssuerDataSource) Schema(_ context.Context, _ datasource.Sche
 					"ca_cert_pem": schema.StringAttribute{
 						Computed:            true,
 						MarkdownDescription: "Custom CA certificate PEM bundle, or `null`.",
+					},
+					"keys": schema.StringAttribute{
+						Computed:            true,
+						MarkdownDescription: "JSON-encoded inline JWK objects when `type` is `inline`, or `null`.",
 					},
 				},
 			},
