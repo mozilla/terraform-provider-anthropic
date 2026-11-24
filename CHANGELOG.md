@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.0](https://github.com/mozilla/terraform-provider-anthropic/compare/v0.2.2...v0.3.0) (2026-11-24)
+
+
+### Features
+
+* support inline JWKS on federation issuers ([#17](https://github.com/mozilla/terraform-provider-anthropic/issues/17)) ([627bf94](https://github.com/mozilla/terraform-provider-anthropic/commit/627bf94b54c7a6ea52ec2d15a7da25f24c020efc))
+
 ## [0.2.2](https://github.com/mozilla/terraform-provider-anthropic/compare/v0.2.1...v0.2.2) (2026-11-21)
 
 
