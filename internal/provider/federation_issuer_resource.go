@@ -6,7 +6,9 @@ package provider
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"reflect"
 
 	"github.com/hashicorp/terraform-plugin-framework-validators/int64validator"
 	"github.com/hashicorp/terraform-plugin-framework-validators/stringvalidator"
@@ -41,6 +43,7 @@ type FederationIssuerJWKSModel struct {
 	DiscoveryBase types.String `tfsdk:"discovery_base"`
 	URL           types.String `tfsdk:"url"`
 	CACertPEM     types.String `tfsdk:"ca_cert_pem"`
+	Keys          types.String `tfsdk:"keys"`
 }
 
 type FederationIssuerResourceModel struct {
@@ -113,9 +116,9 @@ func (r *FederationIssuerResource) Schema(_ context.Context, _ resource.SchemaRe
 				Attributes: map[string]schema.Attribute{
 					"type": schema.StringAttribute{
 						Required:            true,
-						MarkdownDescription: "JWKS resolution strategy (`discovery` or `explicit_url`).",
+						MarkdownDescription: "JWKS resolution strategy (`discovery`, `explicit_url`, or `inline`).",
 						Validators: []validator.String{
-							stringvalidator.OneOf("discovery", "explicit_url"),
+							stringvalidator.OneOf("discovery", "explicit_url", "inline"),
 						},
 					},
 					"discovery_base": schema.StringAttribute{
@@ -132,6 +135,10 @@ func (r *FederationIssuerResource) Schema(_ context.Context, _ resource.SchemaRe
 					"ca_cert_pem": schema.StringAttribute{
 						Optional:            true,
 						MarkdownDescription: "Optional custom CA certificate PEM bundle for TLS verification.",
+					},
+					"keys": schema.StringAttribute{
+						Optional:            true,
+						MarkdownDescription: "JSON-encoded array of JWK objects when `type = \"inline\"`, e.g. `jsonencode(jsondecode(data.http.jwks.response_body).keys)`. Anthropic makes no outbound fetch and does not refresh inline keys, so update them when the provider rotates its signing keys.",
 					},
 				},
 			},
@@ -186,8 +193,13 @@ func (r *FederationIssuerResource) Create(ctx context.Context, req resource.Crea
 	createReq := client.CreateFederationIssuerRequest{
 		Name:      plan.Name.ValueString(),
 		IssuerURL: plan.IssuerURL.ValueString(),
-		JWKS:      expandFederationIssuerJWKS(plan.JWKS),
 	}
+	jwks, err := expandFederationIssuerJWKS(plan.JWKS)
+	if err != nil {
+		resp.Diagnostics.AddError("Invalid JWKS Configuration", err.Error())
+		return
+	}
+	createReq.JWKS = jwks
 	if !plan.CheckJTI.IsNull() && !plan.CheckJTI.IsUnknown() {
 		v := plan.CheckJTI.ValueBool()
 		createReq.CheckJTI = &v
@@ -245,7 +257,11 @@ func (r *FederationIssuerResource) Update(ctx context.Context, req resource.Upda
 		return
 	}
 
-	jwks := expandFederationIssuerJWKS(plan.JWKS)
+	jwks, err := expandFederationIssuerJWKS(plan.JWKS)
+	if err != nil {
+		resp.Diagnostics.AddError("Invalid JWKS Configuration", err.Error())
+		return
+	}
 	updateReq := client.UpdateFederationIssuerRequest{
 		Name:      plan.Name.ValueString(),
 		IssuerURL: plan.IssuerURL.ValueString(),
@@ -300,9 +316,9 @@ func (r *FederationIssuerResource) ImportState(ctx context.Context, req resource
 	resource.ImportStatePassthroughID(ctx, path.Root("id"), req, resp)
 }
 
-func expandFederationIssuerJWKS(m *FederationIssuerJWKSModel) client.FederationIssuerJWKS {
+func expandFederationIssuerJWKS(m *FederationIssuerJWKSModel) (client.FederationIssuerJWKS, error) {
 	if m == nil {
-		return client.FederationIssuerJWKS{Type: "discovery"}
+		return client.FederationIssuerJWKS{Type: "discovery"}, nil
 	}
 	out := client.FederationIssuerJWKS{
 		Type: m.Type.ValueString(),
@@ -319,7 +335,31 @@ func expandFederationIssuerJWKS(m *FederationIssuerJWKSModel) client.FederationI
 		v := m.CACertPEM.ValueString()
 		out.CACertPEM = &v
 	}
-	return out
+	if !m.Keys.IsNull() && !m.Keys.IsUnknown() {
+		if err := json.Unmarshal([]byte(m.Keys.ValueString()), &out.Keys); err != nil {
+			return out, fmt.Errorf("jwks.keys must be a JSON array of JWK objects: %w", err)
+		}
+	}
+	return out, nil
+}
+
+// flattenJWKSKeys keeps the prior JSON string when it decodes to the same keys,
+// so formatting or key order differences do not show as a diff.
+func flattenJWKSKeys(prior types.String, keys []map[string]any) types.String {
+	if len(keys) == 0 {
+		return types.StringNull()
+	}
+	if !prior.IsNull() && !prior.IsUnknown() {
+		var p []map[string]any
+		if json.Unmarshal([]byte(prior.ValueString()), &p) == nil && reflect.DeepEqual(p, keys) {
+			return prior
+		}
+	}
+	b, err := json.Marshal(keys)
+	if err != nil {
+		return types.StringNull()
+	}
+	return types.StringValue(string(b))
 }
 
 func populateFederationIssuerModel(m *FederationIssuerResourceModel, fi *client.FederationIssuer) {
@@ -337,8 +377,13 @@ func populateFederationIssuerModel(m *FederationIssuerResourceModel, fi *client.
 		m.MaxJWTLifetimeSeconds = types.Int64Value(3600)
 	}
 
+	priorKeys := types.StringNull()
+	if m.JWKS != nil {
+		priorKeys = m.JWKS.Keys
+	}
 	jwksModel := &FederationIssuerJWKSModel{
 		Type: types.StringValue(fi.JWKS.Type),
+		Keys: flattenJWKSKeys(priorKeys, fi.JWKS.Keys),
 	}
 	if fi.JWKS.DiscoveryBase != nil {
 		jwksModel.DiscoveryBase = types.StringValue(*fi.JWKS.DiscoveryBase)

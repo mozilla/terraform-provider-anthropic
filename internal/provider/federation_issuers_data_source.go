@@ -89,6 +89,10 @@ func (d *FederationIssuersDataSource) Schema(_ context.Context, _ datasource.Sch
 									Computed:            true,
 									MarkdownDescription: "Custom CA certificate PEM bundle, or `null`.",
 								},
+								"keys": schema.StringAttribute{
+									Computed:            true,
+									MarkdownDescription: "JSON-encoded inline JWK objects when `type` is `inline`, or `null`.",
+								},
 							},
 						},
 						"created_at": schema.StringAttribute{
