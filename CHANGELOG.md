@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.1](https://github.com/mozilla/terraform-provider-anthropic/compare/v0.3.0...v0.3.1) (2026-11-25)
+
+
+### Bug Fixes
+
+* bump go.opentelemetry.io/otel to v1.47.0 for GO-2026-6974 ([#21](https://github.com/mozilla/terraform-provider-anthropic/issues/21)) ([2c48de5](https://github.com/mozilla/terraform-provider-anthropic/commit/2c48de5519164922a1ba3bf36855e559f855e245))
+
 ## [0.3.0](https://github.com/mozilla/terraform-provider-anthropic/compare/v0.2.2...v0.3.0) (2026-11-24)
 
 
